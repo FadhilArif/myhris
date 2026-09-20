@@ -986,7 +986,7 @@ async function printPayslip(payslipId){
     <div class="payslip">
       <div class="header">
         <div>
-          <div class="company">SINAR HRIS</div>
+          <div class="company">FA TECH</div>
           <div class="subtitle">Sistem Informasi SDM Terpadu</div>
         </div>
         <div class="title">
