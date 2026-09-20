@@ -325,7 +325,10 @@ function paintEmployees(list, query){
   c.innerHTML = `
     <div class="toolbar">
       <input class="search-input" placeholder="Cari nama atau kode karyawan..." oninput="paintEmployees(CACHE.employees, this.value)" value="${escapeHtml(query||'')}">
-      <button class="btn btn-primary" onclick="openEmployeeForm()">+ Tambah Karyawan</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline" onclick="openImportCSVModal()">📄 Import CSV</button>
+        <button class="btn btn-primary" onclick="openEmployeeForm()">+ Tambah Karyawan</button>
+      </div>
     </div>
     <div class="card" style="padding:0;">
       <table>
