@@ -388,6 +388,119 @@ function openEmployeeForm(emp){
       <button class="btn btn-primary" onclick="saveEmployee('${emp?emp.id:''}')">Simpan</button>
     </div>`);
 }
+function openImportCSVModal() {
+    openModal(`
+        <h3>Import Data Karyawan via CSV</h3>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">
+            Pastikan format CSV Anda sesuai. <a href="#" onclick="downloadCSVTemplate()" style="color:var(--accent); font-weight:600;">Download Template CSV</a>
+        </p>
+        <div class="field">
+            <label>Pilih File CSV</label>
+            <input type="file" id="csv-file" accept=".csv">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end; margin-top:20px;">
+            <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+            <button class="btn btn-primary" onclick="processCSV()">Proses & Simpan</button>
+        </div>
+    `);
+}
+function downloadCSVTemplate() {
+    const headers = "employee_code,full_name,email,phone,department_name,position_name,join_date,basic_salary,employment_status\n";
+    const example = "EMP-001,Budi Santoso,budi@email.com,08123456789,IT,Software Engineer,2024-01-15,8000000,active\n";
+    const csvContent = "data:text/csv;charset=utf-8," + headers + example;
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "template_import_karyawan.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+async function processCSV() {
+    const fileInput = document.getElementById('csv-file');
+    if (!fileInput.files.length) {
+        showToast('Pilih file CSV terlebih dahulu.', true);
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    reader.onload = async function(e) {
+        const text = e.target.result;
+        const rows = text.split('\n').filter(row => row.trim() !== '');
+        
+        if (rows.length < 2) {
+            showToast('File CSV kosong atau tidak valid.', true);
+            return;
+        }
+
+        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+        
+        // Pastikan cache master data terbaru
+        const [depts, pos] = await Promise.all([
+            sbAll('departments'),
+            sbAll('positions')
+        ]);
+
+        const payloads = [];
+        let successCount = 0;
+
+        for (let i = 1; i < rows.length; i++) {
+            // Split sederhana berdasarkan koma (bisa dimodifikasi jika ada koma di dalam string)
+            const values = rows[i].split(',').map(v => v.trim());
+            const rowData = {};
+            
+            headers.forEach((header, index) => {
+                rowData[header] = values[index] || '';
+            });
+
+            // Mapping Nama Departemen ke ID
+            const deptMatch = depts.find(d => d.name.toLowerCase() === (rowData.department_name || '').toLowerCase());
+            // Mapping Nama Jabatan ke ID (berdasarkan departemen yang cocok)
+            const posMatch = pos.find(p => p.name.toLowerCase() === (rowData.position_name || '').toLowerCase() && p.department_id === (deptMatch ? deptMatch.id : null));
+
+            // Validasi kolom wajib
+            if (!rowData.employee_code || !rowData.full_name) {
+                console.warn(`Baris ${i} dilewati: employee_code dan full_name wajib diisi.`);
+                continue; 
+            }
+
+            payloads.push({
+                employee_code: rowData.employee_code,
+                full_name: rowData.full_name,
+                email: rowData.email || null,
+                phone: rowData.phone || null,
+                department_id: deptMatch ? deptMatch.id : null,
+                position_id: posMatch ? posMatch.id : null,
+                join_date: rowData.join_date || new Date().toISOString().slice(0, 10),
+                basic_salary: Number((rowData.basic_salary || '0').replace(/\./g, '')) || 0,
+                employment_status: rowData.employment_status || 'active'
+            });
+            successCount++;
+        }
+
+        if (payloads.length === 0) {
+            showToast('Tidak ada data valid yang bisa disimpan.', true);
+            return;
+        }
+
+        // Simpan ke Supabase menggunakan upsert agar aman jika ada duplikat employee_code
+        const { error } = await sb.from('employees').upsert(payloads, { onConflict: 'employee_code' });
+
+        if (error) {
+            showToast('Gagal import: ' + error.message, true);
+            return;
+        }
+
+        showToast(`Berhasil mengimport ${successCount} data karyawan!`);
+        closeModal();
+        renderEmployees(); // Refresh tabel
+    };
+
+    reader.readAsText(file);
+}
 function updatePositionDropdown(departmentId) {
     const posSelect = document.getElementById('f-pos');
     
