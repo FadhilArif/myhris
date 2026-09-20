@@ -78,7 +78,7 @@ async function sbAll(table, opts={}){
     // Jika error 401 (Unauthorized) atau JWT expired, paksa logout
     if (error.code === '401' || error.message.includes('JWT') || error.message.includes('not authenticated')) {
       showToast('Sesi Anda telah berakhir. Silakan login kembali.', true);
-      await doLogout(); // Fungsi logout yang sudah ada
+      await doLogout();
       return [];
     }
     
@@ -89,7 +89,6 @@ async function sbAll(table, opts={}){
 }
 // Versi "diam": dipakai untuk tabel baru (contracts, employee_movements, audit_logs,
 // employee_documents) yang mungkin belum dibuat di Supabase saat fitur ini pertama dipasang.
-// Jika tabel belum ada / RLS menolak, cukup kembalikan array kosong tanpa toast merah.
 async function sbAllQuiet(table, opts={}){
   try{
     let q = sb.from(table).select(opts.select || '*');
@@ -203,7 +202,7 @@ async function preloadMaster(){
 
 // 1. Cek sesi saat pertama kali halaman dimuat
 (async () => {
-  const { data: { session }, error } = await sb.auth.getSession();
+  const { data: { session } } = await sb.auth.getSession();
   if (session) {
     await bootAfterLogin(session.user);
   }
@@ -218,13 +217,11 @@ sb.auth.onAuthStateChange(async (event, session) => {
     if (!PROFILE) await bootAfterLogin(session.user);
   } 
   else if (event === 'SIGNED_OUT') {
-    // Bersihkan state saat logout
     CURRENT_USER = null; PROFILE = null; ME = null;
     el('app').style.display = 'none';
     el('login-screen').style.display = 'flex';
   }
   else if (event === 'TOKEN_REFRESHED' && session) {
-    // Token diperbarui, tidak perlu boot ulang, cukup update user
     CURRENT_USER = session.user;
   }
 });
@@ -273,7 +270,6 @@ function buildNav(){
 }
 function navigate(route){
   location.hash = route;
-  // Route bisa mengandung parameter, contoh: "employee-detail/<uuid>"
   const [base, param] = route.split('/');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
   const titles = {
@@ -402,7 +398,6 @@ async function renderEmployees(){
   applyEmployeeFilters();
 }
 
-// Update filter jabatan agar mengikuti unit yang dipilih
 function updateFilterPositionDropdown(departmentId) {
     const posFilter = document.getElementById('emp-filter-pos');
     if (!posFilter) return;
@@ -840,16 +835,13 @@ async function submitLeaveRequest(){
 // =====================================================================
 // MODUL: PAYROLL
 // =====================================================================
-
 async function renderPayroll(){
-   if (!isHR()) {
+  if (!isHR()) {
     el('content').innerHTML = '<div class="empty-state">Anda tidak memiliki akses ke halaman Payroll.</div>';
     return;
   }
   
   const c = el('content');
-  const c = el('content');
-
   const runs = await sbAll('payroll_runs', {order:{col:'created_at', asc:false}});
   c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button></div>
     <div class="card" style="padding:0;"><table><thead><tr><th>Periode</th><th>Status</th><th></th></tr></thead>
@@ -1132,7 +1124,7 @@ async function markTrainingComplete(id, programId, name){
 // MODUL: REIMBURSEMENT / KLAIM
 // =====================================================================
 async function renderClaims(){
-   if (!isHR()) {
+  if (!isHR()) {
     el('content').innerHTML = '<div class="empty-state">Anda tidak memiliki akses ke halaman ini.</div>';
     return;
   }
@@ -1177,6 +1169,7 @@ async function submitClaim(){
   if(error){ showToast(error.message, true); return; }
   showToast('Klaim terkirim.'); closeModal(); renderMyClaims();
 }
+
 // =====================================================================
 // DIREKTORI KARYAWAN (untuk employee)
 // =====================================================================
@@ -1322,12 +1315,6 @@ async function quickDelete(table, id, reload){
 
 // =====================================================================
 // MODUL: PROFIL KARYAWAN TERPADU (EMPLOYEE DETAIL VIEW)
-// Roadmap "Employee Detail View" — Tahap 1: Kerangka + Tab Overview
-//                                   Tahap 2: Attendance, Leave, Payroll, Performance, Training
-//                                   Tahap 3: Employment (contracts) + Movement (butuh tabel baru)
-//                                   Tahap 4: Audit Log + Documents (butuh tabel baru + Storage)
-// Tabel baru (contracts, employee_movements, audit_logs, employee_documents) diakses lewat
-// sbAllQuiet(): jika tabel belum dibuat di Supabase, tab cukup tampil kosong (tidak error merah).
 // =====================================================================
 let EMP_DETAIL = { id: null, tab: 'overview', employee: null };
 
@@ -1345,12 +1332,6 @@ const DETAIL_TABS = [
 ];
 
 function canViewEmployeeDetail(employeeId){
-  // Admin & HR: bebas akses semua karyawan.
-  // Employee: hanya profil sendiri.
-  // Manager: sementara diperlakukan sama seperti employee (hanya diri sendiri),
-  // karena skema `employees` belum punya kolom relasi atasan (manager_id).
-  // TODO: setelah kolom "atasan langsung" tersedia (lihat tab Employment), ganti
-  // aturan ini agar manager juga bisa melihat detail anggota timnya.
   return isHR() || (ME && ME.id === employeeId);
 }
 
@@ -1416,7 +1397,6 @@ function switchDetailTab(tab){
   (loaders[tab] || loadDetailOverview)();
 }
 
-// ---- Tab: Overview ----
 async function loadDetailOverview(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1452,7 +1432,6 @@ async function loadDetailOverview(){
     </div>`;
 }
 
-// ---- Tab: Employment (kontrak kerja — butuh tabel `contracts`) ----
 async function loadDetailEmployment(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1497,7 +1476,6 @@ async function saveContract(employeeId){
   showToast('Kontrak disimpan.'); closeModal(); loadDetailEmployment();
 }
 
-// ---- Tab: Attendance (30 hari terakhir) ----
 async function loadDetailAttendance(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1520,7 +1498,6 @@ async function loadDetailAttendance(){
     </div>`;
 }
 
-// ---- Tab: Leave (saldo + riwayat) ----
 async function loadDetailLeave(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1540,7 +1517,6 @@ async function loadDetailLeave(){
     </div>`;
 }
 
-// ---- Tab: Payroll (12 bulan terakhir + total kumulatif tahun ini) ----
 async function loadDetailPayroll(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1565,7 +1541,6 @@ async function loadDetailPayroll(){
     </div>`;
 }
 
-// ---- Tab: Performance (skor per siklus + feedback) ----
 async function loadDetailPerformance(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1581,7 +1556,6 @@ async function loadDetailPerformance(){
     </div>`;
 }
 
-// ---- Tab: Training (program yang diikuti) ----
 async function loadDetailTraining(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1597,7 +1571,6 @@ async function loadDetailTraining(){
     </div>`;
 }
 
-// ---- Tab: Movement (riwayat promosi/mutasi/demosi — butuh tabel `employee_movements`) ----
 const MOVEMENT_LABELS = { promotion:'Promosi', transfer:'Mutasi', demotion:'Demosi', salary_change:'Perubahan Gaji', manager_change:'Perubahan Atasan' };
 async function loadDetailMovement(){
   const emp = EMP_DETAIL.employee;
@@ -1654,7 +1627,6 @@ async function saveMovement(employeeId){
   showToast('Movement dicatat.'); closeModal(); loadDetailMovement();
 }
 
-// ---- Tab: Documents (metadata dokumen — butuh tabel `employee_documents`) ----
 async function loadDetailDocuments(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1697,7 +1669,6 @@ async function saveDocument(employeeId){
   showToast('Dokumen ditambahkan.'); closeModal(); loadDetailDocuments();
 }
 
-// ---- Tab: Audit (log perubahan — butuh tabel `audit_logs`, khusus HR/Admin) ----
 async function loadDetailAudit(){
   const emp = EMP_DETAIL.employee;
   const container = el('detail-tab-content');
@@ -1707,6 +1678,6 @@ async function loadDetailAudit(){
   container.innerHTML = `
     <div class="card" style="padding:0;">
       <table><thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th></tr></thead>
-      <tbody>${logs.map(l=>`<tr><td>${fmtDateTime(l.created_at)}</td><td>${escapeHtml(l.actor_name||'-')}</td><td>${escapeHtml(l.action)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada log perubahan. (Jika tabel "audit_logs" belum dibuat, jalankan migrasi SQL Tahap 4 di Supabase; log otomatis dari trigger belum aktif — pencatatan manual bisa ditambahkan bertahap.)</td></tr>'}</tbody></table>
+      <tbody>${logs.map(l=>`<tr><td>${fmtDateTime(l.created_at)}</td><td>${escapeHtml(l.actor_name||'-')}</td><td>${escapeHtml(l.action)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada log perubahan. (Jika tabel "audit_logs" belum dibuat, jalankan migrasi SQL Tahap 4 di Supabase.)</td></tr>'}</tbody></table>
     </div>`;
 }
