@@ -126,6 +126,15 @@
   .login-error{background:var(--danger-bg);color:var(--danger);font-size:13px;padding:9px 12px;border-radius:7px;margin-bottom:12px;display:none;}
   .muted-link{font-size:12.5px;color:var(--text-muted);cursor:pointer;}
   .muted-link:hover{color:var(--text);}
+
+  .password-wrap{position:relative;}
+  .password-wrap input{padding-right:38px;}
+  .password-eye{
+    position:absolute;right:11px;top:50%;transform:translateY(-50%);
+    width:19px;height:19px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .password-eye:hover{color:var(--text);}
+  .password-eye svg{width:100%;height:100%;}
 </style>
 </head>
 <body>
@@ -138,7 +147,14 @@
     <p style="color:var(--text-muted);font-size:13.5px;margin:0 0 20px;">Masuk untuk mengakses sistem HR perusahaan.</p>
     <div class="login-error" id="login-error"></div>
     <div class="field"><label>Email</label><input id="login-email" type="email" placeholder="nama@perusahaan.com"></div>
-    <div class="field"><label>Kata Sandi</label><input id="login-password" type="password" placeholder="••••••••"></div>
+    <div class="field"><label>Kata Sandi</label>
+      <div class="password-wrap">
+        <input id="login-password" type="password" placeholder="••••••••">
+        <span class="password-eye" onclick="togglePassword('login-password', this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        </span>
+      </div>
+    </div>
     <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px;" onclick="doLogin()">Masuk</button>
     <p style="text-align:center;margin-top:14px;">
       <span class="muted-link" onclick="toggleSignup()" id="signup-toggle">Belum punya akun? Daftar</span>
@@ -185,7 +201,7 @@
 // =====================================================================
 // KONFIGURASI SUPABASE — ganti dengan URL & anon key project kamu
 // =====================================================================
-const SUPABASE_URL = "https://viawltcutsvaawvjqgsk.supabase.co";
+cconst SUPABASE_URL = "https://viawltcutsvaawvjqgsk.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpYXdsdGN1dHN2YWF3dmpxZ3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NjUwODQsImV4cCI6MjEwNTQ0MTA4NH0.hhpVS35YUbadEGagHG7aA7A5DFxlrd4VOZz7mxO0dJo";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 </script>
