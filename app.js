@@ -115,24 +115,40 @@ async function doLogout(){
 }
 async function bootAfterLogin(user){
   CURRENT_USER = user;
-  let { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  
   if(!profile){
-    // fallback: buat profile default jika belum ada (mis. user dibuat lewat Supabase dashboard)
-    const { data: created } = await sb.from('profiles').insert({ id: user.id, full_name: user.email, role: 'employee' }).select().maybeSingle();
+    // Fallback: buat profile default jika belum ada
+    const { data: created, error: insertError } = await sb.from('profiles')
+      .insert({ id: user.id, full_name: user.email, role: 'employee' })
+      .select()
+      .maybeSingle();
+      
+    if (insertError) {
+      console.error("Gagal membuat profil:", insertError);
+      alert("Gagal membuat profil. Pastikan policy RLS sudah diperbaiki. Error: " + insertError.message);
+      return; // Hentikan proses login jika profil benar-benar gagal dibuat
+    }
     profile = created;
   }
+
   PROFILE = profile;
-  if(PROFILE.employee_id){
+  
+  // Amankan pengecekan employee_id
+  if(PROFILE && PROFILE.employee_id){
     const { data: emp } = await sb.from('employees').select('*, departments(name), positions(name)').eq('id', PROFILE.employee_id).maybeSingle();
     ME = emp;
   }
+  
   el('login-screen').style.display = 'none';
   el('app').style.display = 'block';
   el('user-name').textContent = PROFILE.full_name;
   el('user-role').textContent = ({admin:'Administrator', hr:'Staf HR', manager:'Manajer', employee:'Karyawan'})[PROFILE.role] || PROFILE.role;
   el('user-avatar').textContent = (PROFILE.full_name||'?').slice(0,1).toUpperCase();
+  
   await preloadMaster();
   buildNav();
+  
   const startRoute = location.hash.replace('#','') || 'dashboard';
   navigate(startRoute);
   el('topbar-date').textContent = new Date().toLocaleDateString('id-ID',{weekday:'long', day:'numeric', month:'long', year:'numeric'});
@@ -146,7 +162,7 @@ async function preloadMaster(){
 
 window.addEventListener('load', async () => {
   const { data } = await sb.auth.getSession();
-  if(data.session) await bootAfterLogin(data.session.user);
+  if(data.session) await (data.session.user);
 });
 
 // =====================================================================
