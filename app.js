@@ -73,6 +73,19 @@ async function sbAll(table, opts={}){
   if(error){ console.error(error); showToast('Gagal memuat data: '+error.message, true); return []; }
   return data || [];
 }
+// Versi "diam": dipakai untuk tabel baru (contracts, employee_movements, audit_logs,
+// employee_documents) yang mungkin belum dibuat di Supabase saat fitur ini pertama dipasang.
+// Jika tabel belum ada / RLS menolak, cukup kembalikan array kosong tanpa toast merah.
+async function sbAllQuiet(table, opts={}){
+  try{
+    let q = sb.from(table).select(opts.select || '*');
+    if(opts.eq) for(const k in opts.eq) q = q.eq(k, opts.eq[k]);
+    if(opts.order) q = q.order(opts.order.col, {ascending: opts.order.asc !== false});
+    const { data, error } = await q;
+    if(error) return [];
+    return data || [];
+  } catch(e){ return []; }
+}
 
 // =====================================================================
 // AUTH
@@ -219,23 +232,27 @@ function buildNav(){
 }
 function navigate(route){
   location.hash = route;
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === route));
+  // Route bisa mengandung parameter, contoh: "employee-detail/<uuid>"
+  const [base, param] = route.split('/');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
   const titles = {
     dashboard:'Dashboard', employees:'Data Karyawan', attendance:'Absensi', leave:'Cuti & Izin', payroll:'Payroll',
     recruitment:'Rekrutmen', performance:'Penilaian Kinerja', training:'Training & Development', claims:'Reimbursement',
     settings:'Pengaturan', 'my-attendance':'Absensi Saya', 'my-leave':'Cuti Saya', 'my-payslip':'Slip Gaji Saya',
-    'my-claims':'Klaim Saya', directory:'Direktori Karyawan'
+    'my-claims':'Klaim Saya', directory:'Direktori Karyawan', 'employee-detail':'Profil Karyawan'
   };
-  el('page-title').textContent = titles[route] || 'Dashboard';
+  el('page-title').textContent = titles[base] || 'Dashboard';
   const renderers = {
     dashboard: renderDashboard, employees: renderEmployees, attendance: renderAttendance, leave: renderLeave,
     payroll: renderPayroll, recruitment: renderRecruitment, performance: renderPerformance, training: renderTraining,
     claims: renderClaims, settings: renderSettings, 'my-attendance': renderMyAttendance, 'my-leave': renderMyLeave,
-    'my-payslip': renderMyPayslip, 'my-claims': renderMyClaims, directory: renderDirectory
+    'my-payslip': renderMyPayslip, 'my-claims': renderMyClaims, directory: renderDirectory,
+    'employee-detail': () => renderEmployeeDetail(param)
   };
-  (renderers[route] || renderDashboard)();
+  (renderers[base] || renderDashboard)();
 }
 window.addEventListener('hashchange', () => { if(PROFILE) navigate(location.hash.replace('#','') || 'dashboard'); });
+function openEmployeeDetail(employeeId){ navigate('employee-detail/'+employeeId); }
 
 // =====================================================================
 // MODUL: DASHBOARD
@@ -393,12 +410,13 @@ function applyEmployeeFilters() {
     tbody.innerHTML = filtered.map(e => `
       <tr>
         <td>${escapeHtml(e.employee_code)}</td>
-        <td>${escapeHtml(e.full_name)}</td>
+        <td><a href="javascript:void(0)" onclick="openEmployeeDetail('${e.id}')" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">${escapeHtml(e.full_name)}</a></td>
         <td>${escapeHtml(e.departments?.name||'-')}</td>
         <td>${escapeHtml(e.positions?.name||'-')}</td>
         <td>${fmtDate(e.join_date)}</td>
         <td>${statusBadge(e.employment_status)}</td>
         <td style="text-align:right;">
+          <button class="btn btn-outline btn-sm" onclick="openEmployeeDetail('${e.id}')">Detail</button>
           <button class="btn btn-outline btn-sm" onclick='openEmployeeForm(${JSON.stringify(e).replace(/'/g,"&apos;")})'>Edit</button>
         </td>
       </tr>`).join('');
@@ -1212,4 +1230,395 @@ async function quickDelete(table, id, reload){
   const { error } = await sb.from(table).delete().eq('id', id);
   if(error){ showToast('Gagal menghapus: '+error.message, true); return; }
   showToast('Data dihapus.'); window[reload]();
+}
+
+// =====================================================================
+// MODUL: PROFIL KARYAWAN TERPADU (EMPLOYEE DETAIL VIEW)
+// Roadmap "Employee Detail View" — Tahap 1: Kerangka + Tab Overview
+//                                   Tahap 2: Attendance, Leave, Payroll, Performance, Training
+//                                   Tahap 3: Employment (contracts) + Movement (butuh tabel baru)
+//                                   Tahap 4: Audit Log + Documents (butuh tabel baru + Storage)
+// Tabel baru (contracts, employee_movements, audit_logs, employee_documents) diakses lewat
+// sbAllQuiet(): jika tabel belum dibuat di Supabase, tab cukup tampil kosong (tidak error merah).
+// =====================================================================
+let EMP_DETAIL = { id: null, tab: 'overview', employee: null };
+
+const DETAIL_TABS = [
+  { id:'overview',   label:'Overview' },
+  { id:'employment',  label:'Employment' },
+  { id:'attendance', label:'Absensi' },
+  { id:'leave',      label:'Cuti' },
+  { id:'payroll',    label:'Payroll' },
+  { id:'performance',label:'Kinerja' },
+  { id:'training',   label:'Training' },
+  { id:'movement',   label:'Movement' },
+  { id:'documents',  label:'Dokumen' },
+  { id:'audit',      label:'Audit', hrOnly:true }
+];
+
+function canViewEmployeeDetail(employeeId){
+  // Admin & HR: bebas akses semua karyawan.
+  // Employee: hanya profil sendiri.
+  // Manager: sementara diperlakukan sama seperti employee (hanya diri sendiri),
+  // karena skema `employees` belum punya kolom relasi atasan (manager_id).
+  // TODO: setelah kolom "atasan langsung" tersedia (lihat tab Employment), ganti
+  // aturan ini agar manager juga bisa melihat detail anggota timnya.
+  return isHR() || (ME && ME.id === employeeId);
+}
+
+async function renderEmployeeDetail(employeeId){
+  const c = el('content');
+  if(!employeeId){ c.innerHTML = '<div class="empty-state">Karyawan tidak ditemukan.</div>'; return; }
+  if(!canViewEmployeeDetail(employeeId)){
+    c.innerHTML = '<div class="empty-state">Anda tidak memiliki akses untuk melihat profil karyawan ini.</div>';
+    return;
+  }
+  c.innerHTML = '<div class="empty-state">Memuat profil karyawan…</div>';
+  const rows = await sbAll('employees', { select:'*, departments(name), positions(name)', eq:{ id: employeeId } });
+  const emp = rows[0];
+  if(!emp){ c.innerHTML = '<div class="empty-state">Karyawan tidak ditemukan.</div>'; return; }
+
+  EMP_DETAIL = { id: employeeId, tab: 'overview', employee: emp };
+  el('page-title').textContent = 'Profil — ' + emp.full_name;
+
+  const initials = emp.full_name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  const backRoute = isHR() ? 'employees' : 'directory';
+  const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR());
+
+  c.innerHTML = `
+    <div class="emp-detail-header">
+      <div class="emp-avatar-lg">${initials||'?'}</div>
+      <div style="flex:1;min-width:200px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <h2 style="margin:0;font-size:19px;">${escapeHtml(emp.full_name)}</h2>
+          ${statusBadge(emp.employment_status)}
+        </div>
+        <div style="color:var(--text-muted);font-size:13.5px;margin-top:2px;">
+          ${escapeHtml(emp.positions?.name||'Belum ada jabatan')} • ${escapeHtml(emp.departments?.name||'Belum ada departemen')}
+        </div>
+        <div class="emp-detail-meta">
+          <span>Kode: <b>${escapeHtml(emp.employee_code||'-')}</b></span>
+          <span>Email: <b>${escapeHtml(emp.email||'-')}</b></span>
+          <span>Telepon: <b>${escapeHtml(emp.phone||'-')}</b></span>
+          <span>Bergabung: <b>${fmtDate(emp.join_date)}</b></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="navigate('${backRoute}')">← Kembali</button>
+        ${isHR() ? `<button class="btn btn-outline btn-sm" onclick='openEmployeeForm(${JSON.stringify(emp).replace(/'/g,"&apos;")})'>Edit Profil</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="window.print()">Cetak</button>
+      </div>
+    </div>
+    <div class="detail-tab-row" id="detail-tab-row">
+      ${tabs.map(t => `<div class="tab ${t.id==='overview'?'active':''}" data-tab="${t.id}" onclick="switchDetailTab('${t.id}')">${t.label}</div>`).join('')}
+    </div>
+    <div id="detail-tab-content"><div class="empty-state">Memuat…</div></div>`;
+
+  switchDetailTab('overview');
+}
+
+function switchDetailTab(tab){
+  EMP_DETAIL.tab = tab;
+  document.querySelectorAll('#detail-tab-row .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  const loaders = {
+    overview: loadDetailOverview, employment: loadDetailEmployment, attendance: loadDetailAttendance,
+    leave: loadDetailLeave, payroll: loadDetailPayroll, performance: loadDetailPerformance,
+    training: loadDetailTraining, movement: loadDetailMovement, documents: loadDetailDocuments, audit: loadDetailAudit
+  };
+  (loaders[tab] || loadDetailOverview)();
+}
+
+// ---- Tab: Overview ----
+async function loadDetailOverview(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat ringkasan…</div>';
+  const year = new Date().getFullYear();
+  const [balances, slips, reviews, enrolls] = await Promise.all([
+    sbAll('leave_balances', { eq:{ employee_id: emp.id, year } }),
+    sbAll('payslips', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } }),
+    sbAll('performance_reviews', { eq:{ employee_id: emp.id } }),
+    sbAll('training_enrollments', { eq:{ employee_id: emp.id } })
+  ]);
+  const sisaCuti = balances.reduce((s,b)=>s+(Number(b.total_days)-Number(b.used_days)), 0);
+  const lastSlip = slips[0];
+  const lastReview = reviews[reviews.length-1];
+  const completedTraining = enrolls.filter(e=>e.status==='completed').length;
+
+  container.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-num">${sisaCuti.toFixed(1)}</div><div class="stat-label">Sisa Cuti (${year})</div></div>
+      <div class="stat-card"><div class="stat-num">${lastSlip ? fmtMoney(lastSlip.net_salary) : '-'}</div><div class="stat-label">Gaji Bersih Terakhir</div></div>
+      <div class="stat-card"><div class="stat-num">${lastReview ? lastReview.score : '-'}</div><div class="stat-label">Skor Kinerja Terakhir</div></div>
+      <div class="stat-card"><div class="stat-num">${completedTraining}/${enrolls.length}</div><div class="stat-label">Training Selesai</div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0;">Informasi Dasar</h3>
+      <table><tbody>
+        <tr><td style="color:var(--text-muted);width:180px;">Departemen</td><td>${escapeHtml(emp.departments?.name||'-')}</td></tr>
+        <tr><td style="color:var(--text-muted);">Jabatan</td><td>${escapeHtml(emp.positions?.name||'-')}</td></tr>
+        <tr><td style="color:var(--text-muted);">Tanggal Bergabung</td><td>${fmtDate(emp.join_date)}</td></tr>
+        <tr><td style="color:var(--text-muted);">Status Kepegawaian</td><td>${statusBadge(emp.employment_status)}</td></tr>
+        ${(isHR() || (ME && ME.id===emp.id)) ? `<tr><td style="color:var(--text-muted);">Gaji Pokok</td><td>${fmtMoney(emp.basic_salary)}</td></tr>` : ''}
+      </tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Employment (kontrak kerja — butuh tabel `contracts`) ----
+async function loadDetailEmployment(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat data kontrak…</div>';
+  const contracts = await sbAllQuiet('contracts', { eq:{ employee_id: emp.id }, order:{ col:'start_date', asc:false } });
+  container.innerHTML = `
+    <div class="toolbar">
+      <span style="font-size:12.5px;color:var(--text-muted);">Atasan langsung: <b>belum tersedia</b> — menunggu kolom relasi manager pada data karyawan.</span>
+      ${isHR() ? `<button class="btn btn-primary btn-sm" onclick="openContractForm('${emp.id}')">+ Tambah Kontrak</button>` : ''}
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>No. Kontrak</th><th>Tipe</th><th>Mulai</th><th>Berakhir</th><th>Gaji Pokok</th><th>Status</th></tr></thead>
+      <tbody>${contracts.map(c=>`<tr>
+          <td>${escapeHtml(c.contract_number||'-')}</td><td>${escapeHtml(c.contract_type)}</td>
+          <td>${fmtDate(c.start_date)}</td><td>${c.end_date?fmtDate(c.end_date):'-'}</td>
+          <td>${fmtMoney(c.basic_salary)}</td><td>${statusBadge(c.status)}</td>
+        </tr>`).join('') || `<tr><td colspan="6" class="empty-state">Belum ada riwayat kontrak. ${isHR() ? '(Jika tabel "contracts" belum dibuat, jalankan migrasi SQL Tahap 3 di Supabase.)' : ''}</td></tr>`}</tbody></table>
+    </div>`;
+}
+function openContractForm(employeeId){
+  openModal(`<h3>Tambah Kontrak</h3>
+    <div class="field"><label>No. Kontrak</label><input id="ct-number"></div>
+    <div class="field"><label>Tipe</label><select id="ct-type">
+      ${['PKWT','PKWTT','Internship','Freelance'].map(t=>`<option value="${t}">${t}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Tanggal Mulai</label><input id="ct-start" type="date"></div>
+    <div class="field"><label>Tanggal Berakhir (opsional)</label><input id="ct-end" type="date"></div>
+    <div class="field"><label>Gaji Pokok</label><input id="ct-salary" type="text" oninput="formatNumberInput(this)" value="0"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveContract('${employeeId}')">Simpan</button>
+    </div>`);
+}
+async function saveContract(employeeId){
+  const payload = {
+    employee_id: employeeId, contract_number: el('ct-number').value.trim(), contract_type: el('ct-type').value,
+    start_date: el('ct-start').value, end_date: el('ct-end').value || null,
+    basic_salary: Number(el('ct-salary').value.replace(/\./g,'').replace(/[^0-9]/g,''))||0
+  };
+  const { error } = await sb.from('contracts').insert(payload);
+  if(error){ showToast('Gagal menyimpan (pastikan tabel "contracts" sudah dibuat): '+error.message, true); return; }
+  showToast('Kontrak disimpan.'); closeModal(); loadDetailEmployment();
+}
+
+// ---- Tab: Attendance (30 hari terakhir) ----
+async function loadDetailAttendance(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat absensi…</div>';
+  const history = await sbAll('attendance', { eq:{ employee_id: emp.id }, order:{ col:'work_date', asc:false } });
+  const last30 = history.slice(0,30);
+  const hadir = last30.filter(a=>a.status==='present').length;
+  const terlambat = last30.filter(a=>a.status==='late').length;
+  const absen = last30.filter(a=>a.status==='absent').length;
+  container.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-num">${hadir}</div><div class="stat-label">Hadir (30 hari)</div></div>
+      <div class="stat-card"><div class="stat-num">${terlambat}</div><div class="stat-label">Terlambat</div></div>
+      <div class="stat-card"><div class="stat-num">${absen}</div><div class="stat-label">Absen</div></div>
+      <div class="stat-card"><div class="stat-num">${last30.length}</div><div class="stat-label">Total Tercatat</div></div>
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Tanggal</th><th>Masuk</th><th>Keluar</th><th>Status</th></tr></thead>
+      <tbody>${last30.map(h=>`<tr><td>${fmtDate(h.work_date)}</td><td>${h.check_in?fmtDateTime(h.check_in):'-'}</td><td>${h.check_out?fmtDateTime(h.check_out):'-'}</td><td>${statusBadge(h.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">Belum ada riwayat absensi.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Leave (saldo + riwayat) ----
+async function loadDetailLeave(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat cuti…</div>';
+  const year = new Date().getFullYear();
+  const [balances, reqs] = await Promise.all([
+    sbAll('leave_balances', { eq:{ employee_id: emp.id, year } }),
+    sbAll('leave_requests', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } })
+  ]);
+  container.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:16px;">
+      ${balances.map(b=>{ const t=CACHE.leaveTypes.find(x=>x.id===b.leave_type_id); return `<div class="stat-card"><div class="stat-num">${(Number(b.total_days)-Number(b.used_days)).toFixed(1)}</div><div class="stat-label">Sisa ${escapeHtml(t?t.name:'-')}</div></div>`; }).join('') || '<div class="empty-state">Belum ada saldo cuti tahun ini.</div>'}
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Status</th></tr></thead>
+      <tbody>${reqs.map(r=>{ const t=CACHE.leaveTypes.find(x=>x.id===r.leave_type_id); return `<tr><td>${escapeHtml(t?t.name:'-')}</td><td>${fmtDate(r.start_date)} - ${fmtDate(r.end_date)}</td><td>${r.total_days}</td><td>${escapeHtml(r.reason||'-')}</td><td>${statusBadge(r.status)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada pengajuan cuti.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Payroll (12 bulan terakhir + total kumulatif tahun ini) ----
+async function loadDetailPayroll(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat slip gaji…</div>';
+  const [slips, runs] = await Promise.all([
+    sbAll('payslips', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } }),
+    sbAll('payroll_runs')
+  ]);
+  const year = new Date().getFullYear();
+  const totalTahunIni = slips
+    .filter(s => runs.find(r=>r.id===s.payroll_run_id)?.period_year === year)
+    .reduce((sum,s)=>sum+Number(s.net_salary||0), 0);
+  const last12 = slips.slice(0,12);
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+      <div>Total gaji bersih diterima tahun ${year}</div>
+      <div class="total-amount" style="font-family:'Manrope';font-weight:800;font-size:20px;color:var(--accent-dark);">${fmtMoney(totalTahunIni)}</div>
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Periode</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th></tr></thead>
+      <tbody>${last12.map(s=>{ const run = runs.find(r=>r.id===s.payroll_run_id); return `<tr><td>${run?String(run.period_month).padStart(2,'0')+'/'+run.period_year:'-'}</td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada slip gaji.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Performance (skor per siklus + feedback) ----
+async function loadDetailPerformance(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat kinerja…</div>';
+  const [reviews, cycles] = await Promise.all([
+    sbAll('performance_reviews', { eq:{ employee_id: emp.id } }),
+    sbAll('performance_cycles', { order:{ col:'start_date', asc:false } })
+  ]);
+  container.innerHTML = `
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Siklus</th><th>Skor</th><th>Kekuatan</th><th>Area Perbaikan</th><th>Status</th></tr></thead>
+      <tbody>${cycles.map(cy=>{ const r = reviews.find(x=>x.cycle_id===cy.id); if(!r) return ''; return `<tr><td>${escapeHtml(cy.name)}</td><td><b>${r.score??'-'}</b></td><td>${escapeHtml(r.strengths||'-')}</td><td>${escapeHtml(r.improvements||'-')}</td><td>${statusBadge(r.status)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada penilaian.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Training (program yang diikuti) ----
+async function loadDetailTraining(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat training…</div>';
+  const [enrolls, programs] = await Promise.all([
+    sbAll('training_enrollments', { eq:{ employee_id: emp.id } }),
+    sbAll('training_programs')
+  ]);
+  container.innerHTML = `
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Program</th><th>Penyelenggara</th><th>Tanggal</th><th>Status</th></tr></thead>
+      <tbody>${enrolls.map(en=>{ const p = programs.find(x=>x.id===en.program_id); return `<tr><td>${escapeHtml(p?.name||'-')}</td><td>${escapeHtml(p?.provider||'-')}</td><td>${p?fmtDate(p.start_date)+' - '+fmtDate(p.end_date):'-'}</td><td>${statusBadge(en.status)}</td></tr>`; }).join('') || '<tr><td colspan="4" class="empty-state">Belum mengikuti training.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+// ---- Tab: Movement (riwayat promosi/mutasi/demosi — butuh tabel `employee_movements`) ----
+const MOVEMENT_LABELS = { promotion:'Promosi', transfer:'Mutasi', demotion:'Demosi', salary_change:'Perubahan Gaji', manager_change:'Perubahan Atasan' };
+async function loadDetailMovement(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat riwayat movement…</div>';
+  const [moves, depts, positions] = await Promise.all([
+    sbAllQuiet('employee_movements', { eq:{ employee_id: emp.id }, order:{ col:'effective_date', asc:false } }),
+    sbAll('departments'), sbAll('positions')
+  ]);
+  const nameOf = (list,id) => list.find(x=>x.id===id)?.name || '-';
+  container.innerHTML = `
+    <div class="toolbar"><span></span>${isHR() ? `<button class="btn btn-primary btn-sm" onclick="openMovementForm('${emp.id}')">+ Catat Movement</button>` : ''}</div>
+    <div class="card">
+      ${moves.map(m=>`
+        <div class="movement-item">
+          <div style="width:110px;color:var(--text-muted);">${fmtDate(m.effective_date)}</div>
+          <div style="flex:1;">
+            <b>${MOVEMENT_LABELS[m.movement_type]||m.movement_type}</b>
+            ${m.from_department_id||m.to_department_id ? `<div>Departemen: ${nameOf(depts,m.from_department_id)} → ${nameOf(depts,m.to_department_id)}</div>` : ''}
+            ${m.from_position_id||m.to_position_id ? `<div>Jabatan: ${nameOf(positions,m.from_position_id)} → ${nameOf(positions,m.to_position_id)}</div>` : ''}
+            ${m.from_salary||m.to_salary ? `<div>Gaji: ${fmtMoney(m.from_salary)} → ${fmtMoney(m.to_salary)}</div>` : ''}
+            ${m.reason ? `<div style="color:var(--text-muted);">${escapeHtml(m.reason)}</div>` : ''}
+          </div>
+        </div>`).join('') || `<div class="empty-state">Belum ada riwayat movement. ${isHR() ? '(Jika tabel "employee_movements" belum dibuat, jalankan migrasi SQL Tahap 3 di Supabase.)' : ''}</div>`}
+    </div>`;
+}
+function openMovementForm(employeeId){
+  const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  const posOpts = CACHE.positions.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  openModal(`<h3>Catat Movement</h3>
+    <div class="field"><label>Tipe</label><select id="mv-type">
+      ${Object.entries(MOVEMENT_LABELS).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Tanggal Efektif</label><input id="mv-date" type="date"></div>
+    <div class="field"><label>Departemen Tujuan (opsional)</label><select id="mv-dept"><option value="">- Tidak berubah -</option>${deptOpts}</select></div>
+    <div class="field"><label>Jabatan Tujuan (opsional)</label><select id="mv-pos"><option value="">- Tidak berubah -</option>${posOpts}</select></div>
+    <div class="field"><label>Gaji Baru (opsional)</label><input id="mv-salary" type="text" oninput="formatNumberInput(this)"></div>
+    <div class="field"><label>Alasan</label><textarea id="mv-reason" rows="2"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveMovement('${employeeId}')">Simpan</button>
+    </div>`);
+}
+async function saveMovement(employeeId){
+  const payload = {
+    employee_id: employeeId, movement_type: el('mv-type').value, effective_date: el('mv-date').value,
+    to_department_id: el('mv-dept').value || null, to_position_id: el('mv-pos').value || null,
+    to_salary: el('mv-salary').value ? Number(el('mv-salary').value.replace(/[^0-9]/g,'')) : null,
+    reason: el('mv-reason').value.trim()
+  };
+  if(!payload.effective_date){ showToast('Tanggal efektif wajib diisi.', true); return; }
+  const { error } = await sb.from('employee_movements').insert(payload);
+  if(error){ showToast('Gagal menyimpan (pastikan tabel "employee_movements" sudah dibuat): '+error.message, true); return; }
+  showToast('Movement dicatat.'); closeModal(); loadDetailMovement();
+}
+
+// ---- Tab: Documents (metadata dokumen — butuh tabel `employee_documents`) ----
+async function loadDetailDocuments(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  container.innerHTML = '<div class="empty-state">Memuat dokumen…</div>';
+  const docs = await sbAllQuiet('employee_documents', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } });
+  const canManage = isHR() || (ME && ME.id === emp.id);
+  container.innerHTML = `
+    <div class="toolbar"><span></span>${canManage ? `<button class="btn btn-primary btn-sm" onclick="openDocumentForm('${emp.id}')">+ Tambah Dokumen</button>` : ''}</div>
+    <div class="doc-grid">
+      ${docs.map(d=>`
+        <div class="doc-card">
+          <div style="font-weight:700;margin-bottom:4px;">${escapeHtml(d.document_type)}</div>
+          <div style="color:var(--text-muted);margin-bottom:8px;word-break:break-all;">${escapeHtml(d.file_name)}</div>
+          ${d.expiry_date ? `<div style="font-size:11.5px;color:var(--warning);margin-bottom:8px;">Berlaku sampai ${fmtDate(d.expiry_date)}</div>` : ''}
+          <a href="${escapeHtml(d.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;">Buka</a>
+        </div>`).join('') || `<div class="empty-state">Belum ada dokumen tersimpan. ${isHR() ? '(Jika tabel "employee_documents" belum dibuat, jalankan migrasi SQL Tahap 4 di Supabase.)' : ''}</div>`}
+    </div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin-top:12px;">Catatan: upload file ke Supabase Storage belum diaktifkan — untuk saat ini dokumen disimpan sebagai tautan (link) eksternal.</p>`;
+}
+function openDocumentForm(employeeId){
+  openModal(`<h3>Tambah Dokumen</h3>
+    <div class="field"><label>Jenis Dokumen</label><select id="dc-type">
+      ${['KTP','NPWP','Kontrak','Ijazah','Sertifikat','Lainnya'].map(t=>`<option value="${t}">${t}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Nama File</label><input id="dc-name" placeholder="contoh: ktp-budi.pdf"></div>
+    <div class="field"><label>Tautan File (URL)</label><input id="dc-url" placeholder="https://..."></div>
+    <div class="field"><label>Tanggal Kedaluwarsa (opsional)</label><input id="dc-expiry" type="date"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveDocument('${employeeId}')">Simpan</button>
+    </div>`);
+}
+async function saveDocument(employeeId){
+  const fileUrl = el('dc-url').value.trim();
+  const fileName = el('dc-name').value.trim();
+  if(!fileUrl || !fileName){ showToast('Nama file dan tautan wajib diisi.', true); return; }
+  const payload = { employee_id: employeeId, document_type: el('dc-type').value, file_name: fileName, file_url: fileUrl, expiry_date: el('dc-expiry').value || null };
+  const { error } = await sb.from('employee_documents').insert(payload);
+  if(error){ showToast('Gagal menyimpan (pastikan tabel "employee_documents" sudah dibuat): '+error.message, true); return; }
+  showToast('Dokumen ditambahkan.'); closeModal(); loadDetailDocuments();
+}
+
+// ---- Tab: Audit (log perubahan — butuh tabel `audit_logs`, khusus HR/Admin) ----
+async function loadDetailAudit(){
+  const emp = EMP_DETAIL.employee;
+  const container = el('detail-tab-content');
+  if(!isHR()){ container.innerHTML = '<div class="empty-state">Hanya HR/Admin yang dapat melihat audit log.</div>'; return; }
+  container.innerHTML = '<div class="empty-state">Memuat audit log…</div>';
+  const logs = await sbAllQuiet('audit_logs', { eq:{ entity:'employees', entity_id: emp.id }, order:{ col:'created_at', asc:false } });
+  container.innerHTML = `
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th></tr></thead>
+      <tbody>${logs.map(l=>`<tr><td>${fmtDateTime(l.created_at)}</td><td>${escapeHtml(l.actor_name||'-')}</td><td>${escapeHtml(l.action)}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada log perubahan. (Jika tabel "audit_logs" belum dibuat, jalankan migrasi SQL Tahap 4 di Supabase; log otomatis dari trigger belum aktif — pencatatan manual bisa ditambahkan bertahap.)</td></tr>'}</tbody></table>
+    </div>`;
 }
