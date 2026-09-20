@@ -1,59 +1,112 @@
-# PeopleFlow HRIS
+# PeopleFlow HRIS — READY TO CONNECT
 
-Responsive HRIS starter built with React + Vite + Supabase.
+Project HRIS React + Vite + Supabase. UI mengikuti referensi: topbar hijau, sidebar, card putih, dense table, KPI, badge, dan mobile drawer.
 
-## Included modules
+## 1) Supabase: cukup 2 langkah
 
-- Dashboard
-- Employee master data
-- Recruitment / ATS
-- Attendance
-- Leave & Permission
-- Overtime
-- Payroll
-- Contracts
-- Employee Movement
-- Performance
-- Training & Development
-- Offboarding
-- Reports & Analytics
-- Settings / roles / audit-log foundation
+### A. SQL Editor
+Buka:
+Supabase -> SQL Editor -> New query
 
-## UI
+Copy seluruh isi:
+`supabase/schema.sql`
 
-The interface follows the supplied reference: green top navigation, compact left HR workspace navigation, white cards, dense data tables, badges, KPI cards, and mobile drawer navigation.
+Klik **Run**.
 
-## Run locally
+Script ini membuat tabel HRIS, RLS, policy development, department sample, employee sample, candidate sample, attendance, dan leave.
+
+### B. Paste API ke `.env`
+
+File `.env` sudah disediakan di root project:
+
+```env
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
+
+Isi dari:
+Supabase -> Project Settings -> API
+
+Gunakan:
+- Project URL
+- Publishable key / anon key
+
+JANGAN masukkan `service_role` / secret key ke frontend.
+
+## 2) Jalankan
 
 ```bash
 npm install
-cp .env.example .env
 npm run dev
 ```
 
-Set these values in `.env`:
+Buka URL Vite yang tampil di terminal.
 
-```env
-VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+Header akan menampilkan:
+- `Supabase connected` = koneksi berhasil
+- `Demo / Config missing` = .env belum benar
+- `Supabase error` = koneksi ada tetapi query gagal
+
+## 3) Arsitektur koneksi
+
+```text
+.env
+  |
+  v
+src/lib/supabase.js     <- satu-satunya gateway Supabase
+  |
+  v
+src/services/hris.js    <- fungsi query/insert/update/delete
+  |
+  v
+src/main.jsx            <- UI HRIS
+  |
+  v
+Supabase
 ```
 
-Then run the SQL in `supabase/schema.sql` in Supabase SQL Editor.
+Jadi kamu tidak perlu menempel API di banyak file.
 
-## Deploy to Vercel
+## 4) Deploy Vercel
 
-Push the project to GitHub, import it into Vercel, then add the same two Vite environment variables in the Vercel project settings.
+Push project ke GitHub.
 
-## Important
+Di Vercel:
+Project -> Settings -> Environment Variables
 
-This starter intentionally uses Demo mode when Supabase credentials are missing. It does not include a service-role key. Never expose a Supabase service-role key in a browser app.
+Tambahkan:
+`VITE_SUPABASE_URL`
+`VITE_SUPABASE_ANON_KEY`
 
-Before production use, finish:
+Lalu redeploy.
+
+## 5) Keamanan
+
+`schema.sql` memakai policy `dev_open_all` agar project latihan langsung hidup memakai publishable/anon key.
+
+Untuk HRIS production, policy ini HARUS diganti menjadi:
 - Supabase Auth
-- role-aware RLS policies
-- audit logging triggers
-- payroll business rules
-- BPJS / tax configuration
-- file storage for resumes and employee documents
-- approval workflows
-- validation and server-side authorization
+- authenticated-only access
+- role-aware RLS
+- audit log
+- least privilege
+- storage policies untuk dokumen
+
+Jangan pernah menaruh service-role key di React/Vite frontend.
+
+## Modul
+
+Dashboard
+Employees
+Recruitment / ATS
+Attendance
+Leave & Permission
+Overtime
+Payroll
+Contracts
+Employee Movement
+Performance
+Training & Development
+Offboarding
+Reports & Analytics
+Settings / Roles foundation
