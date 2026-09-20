@@ -99,10 +99,15 @@ async function doSignup(){
   if(!email || !password || !name){ showLoginError('Lengkapi email, kata sandi, dan nama.'); return; }
   const { data, error } = await sb.auth.signUp({ email, password });
   if(error){ showLoginError(error.message); return; }
-  if(data.user){
-    await sb.from('profiles').insert({ id: data.user.id, full_name: name, role: 'employee' });
+   if(data.user){
+    const { error: insertError } = await sb.from('profiles').insert({ id: data.user.id, full_name: name, role: 'employee' });
+    if (insertError) {
+      showLoginError("Gagal membuat profil: " + insertError.message);
+      return;
+    }
     showToast('Akun dibuat. Silakan masuk.');
     toggleSignup();
+  }
   }
 }
 function showLoginError(msg){
@@ -173,7 +178,7 @@ async function preloadMaster(){
 
 window.addEventListener('load', async () => {
   const { data } = await sb.auth.getSession();
-  if(data.session) await (data.session.user);
+ if(data.session) await bootAfterLogin(data.session.user);
 });
 
 // =====================================================================
@@ -884,7 +889,7 @@ function openClaimForm(){
     </div>`);
 }
 async function submitClaim(){
-  const { error } = await sb.from('reimbursement_claims').insert({ employee_id: ME.id, category: el('rc-cat').value.trim(), amount: Number(el('rc-amount').value.replace(/\./g, '')) || 0
+  const { error } = await sb.from('reimbursement_claims').insert({ employee_id: ME.id, category: el('rc-cat').value.trim(), amount: Number(el('rc-amount').value.replace(/\./g, '')) || 0 });
   if(error){ showToast(error.message, true); return; }
   showToast('Klaim terkirim.'); closeModal(); renderMyClaims();
 }
@@ -983,7 +988,7 @@ function openPayrollCompForm(){
     </div>`);
 }
 async function savePayrollComp(){
-  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value.replace(/\./g, '')) || 0
+  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value.replace(/\./g, '')) || 0 });
   if(error){ showToast(error.message, true); return; }
   showToast('Komponen ditambahkan.'); closeModal(); loadPayrollCompSettings();
 }
