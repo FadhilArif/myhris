@@ -903,8 +903,164 @@ async function renderMyPayslip(){
   if(!ME){ c.innerHTML = '<div class="empty-state">Akun belum ditautkan ke data karyawan.</div>'; return; }
   const slips = await sbAll('payslips', {eq:{employee_id: ME.id}, order:{col:'created_at', asc:false}});
   const runs = await sbAll('payroll_runs');
-  c.innerHTML = `<div class="card" style="padding:0;"><table><thead><tr><th>Periode</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th></tr></thead>
-    <tbody>${slips.map(s=>{ const run = runs.find(r=>r.id===s.payroll_run_id); return `<tr><td>${run?String(run.period_month).padStart(2,'0')+'/'+run.period_year:'-'}</td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada slip gaji.</td></tr>'}</tbody></table></div>`;
+  c.innerHTML = `<div class="card" style="padding:0;"><table><thead><tr>
+      <th>Periode</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th><th></th>
+    </tr></thead>
+    <tbody>${slips.map(s=>{
+      const run = runs.find(r=>r.id===s.payroll_run_id);
+      const periode = run ? String(run.period_month).padStart(2,'0')+'/'+run.period_year : '-';
+      return `<tr>
+        <td><b>${periode}</b></td>
+        <td>${fmtMoney(s.basic_salary)}</td>
+        <td>${fmtMoney(s.total_earnings)}</td>
+        <td>${fmtMoney(s.total_deductions)}</td>
+        <td><b>${fmtMoney(s.net_salary)}</b></td>
+        <td style="text-align:right;">
+          <button class="btn btn-outline btn-sm" onclick="printPayslip('${s.id}')">🖨️ Cetak</button>
+        </td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="6" class="empty-state">Belum ada slip gaji.</td></tr>'}</tbody></table></div>`;
+}
+async function printPayslip(payslipId){
+  // Ambil data lengkap slip
+  const slips = await sbAll('payslips', { eq:{ id: payslipId } });
+  const slip = slips[0];
+  if(!slip){ showToast('Slip tidak ditemukan.', true); return; }
+
+  // Cari periode dari payroll_runs
+  const runs = await sbAll('payroll_runs', { eq:{ id: slip.payroll_run_id } });
+  const run = runs[0];
+  const periode = run ? String(run.period_month).padStart(2,'0')+'/'+run.period_year : '-';
+
+  // Ambil info karyawan
+  const emps = await sbAll('employees', { select:'*, departments(name), positions(name)', eq:{ id: slip.employee_id } });
+  const emp = emps[0] || { full_name:'-', employee_code:'-', departments:{name:'-'}, positions:{name:'-'} };
+
+  // Susun rincian earning/deduction dari field `details` (jsonb)
+  const details = Array.isArray(slip.details) ? slip.details : [];
+  const earningsList = details.filter(d => d.type === 'earning');
+  const deductionsList = details.filter(d => d.type === 'deduction');
+
+  const earningRows = earningsList.length
+    ? earningsList.map(d => `<tr><td>${escapeHtml(d.name)}</td><td style="text-align:right;">${fmtMoney(d.amount)}</td></tr>`).join('')
+    : `<tr><td>Gaji Pokok</td><td style="text-align:right;">${fmtMoney(slip.basic_salary)}</td></tr>`;
+  const deductionRows = deductionsList.length
+    ? deductionsList.map(d => `<tr><td>${escapeHtml(d.name)}</td><td style="text-align:right;">- ${fmtMoney(d.amount)}</td></tr>`).join('')
+    : `<tr><td>Tidak ada potongan</td><td style="text-align:right;">Rp 0</td></tr>`;
+
+  // HTML untuk jendela cetak
+  const html = `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8">
+    <title>Slip Gaji ${escapeHtml(emp.full_name)} — ${periode}</title>
+    <style>
+      * { box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+      body { margin: 0; padding: 40px; background: #fff; color: #1C2321; }
+      .payslip { max-width: 700px; margin: 0 auto; border: 1px solid #ccc; padding: 32px; }
+      .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #2F8F63; padding-bottom: 16px; margin-bottom: 24px; }
+      .company { font-size: 22px; font-weight: 800; color: #2F8F63; }
+      .subtitle { font-size: 13px; color: #666; margin-top: 2px; }
+      .title { text-align: right; }
+      .title h1 { margin: 0; font-size: 20px; }
+      .title .period { font-size: 14px; color: #444; margin-top: 4px; }
+      .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; font-size: 13px; }
+      .info-grid table { width: 100%; border-collapse: collapse; }
+      .info-grid td { padding: 4px 0; vertical-align: top; }
+      .info-grid td:first-child { color: #666; width: 120px; }
+      .info-grid td:last-child { font-weight: 600; }
+      .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #2F8F63; border-bottom: 1px solid #e0e0e0; padding-bottom: 6px; margin: 20px 0 10px; }
+      table.items { width: 100%; border-collapse: collapse; font-size: 13px; }
+      table.items td { padding: 8px 4px; border-bottom: 1px dashed #e0e0e0; }
+      table.items tr:last-child td { border-bottom: none; }
+      .total-box { margin-top: 24px; padding: 16px; background: #E9F5EE; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+      .total-box .label { font-size: 14px; color: #256F4D; font-weight: 600; }
+      .total-box .amount { font-size: 22px; font-weight: 800; color: #2F8F63; }
+      .footer { margin-top: 40px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #e0e0e0; padding-top: 16px; }
+      .signature { display: flex; justify-content: space-between; margin-top: 50px; font-size: 13px; }
+      .signature div { width: 40%; text-align: center; }
+      .signature .line { border-top: 1px solid #333; margin-bottom: 6px; margin-top: 60px; }
+      @media print {
+        body { padding: 0; }
+        .payslip { border: none; padding: 20px; max-width: 100%; }
+        .no-print { display: none !important; }
+      }
+    </style></head><body>
+    <div class="payslip">
+      <div class="header">
+        <div>
+          <div class="company">SINAR HRIS</div>
+          <div class="subtitle">Sistem Informasi SDM Terpadu</div>
+        </div>
+        <div class="title">
+          <h1>SLIP GAJI</h1>
+          <div class="period">Periode ${periode}</div>
+        </div>
+      </div>
+
+      <div class="info-grid">
+        <table>
+          <tr><td>Kode Karyawan</td><td>: ${escapeHtml(emp.employee_code||'-')}</td></tr>
+          <tr><td>Nama</td><td>: ${escapeHtml(emp.full_name)}</td></tr>
+          <tr><td>Jabatan</td><td>: ${escapeHtml(emp.positions?.name||'-')}</td></tr>
+          <tr><td>Departemen</td><td>: ${escapeHtml(emp.departments?.name||'-')}</td></tr>
+        </table>
+        <table>
+          <tr><td>Tanggal Cetak</td><td>: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</td></tr>
+          <tr><td>Status</td><td>: ${run && run.status==='processed' ? 'Diproses' : (run?.status||'-')}</td></tr>
+          <tr><td>Periode</td><td>: ${periode}</td></tr>
+        </table>
+      </div>
+
+      <div class="section-title">PENDAPATAN</div>
+      <table class="items">
+        ${earningRows}
+        <tr style="background:#f9f9f9;"><td><b>Total Pendapatan</b></td><td style="text-align:right;"><b>${fmtMoney(slip.total_earnings)}</b></td></tr>
+      </table>
+
+      <div class="section-title">POTONGAN</div>
+      <table class="items">
+        ${deductionRows}
+        <tr style="background:#f9f9f9;"><td><b>Total Potongan</b></td><td style="text-align:right;"><b>- ${fmtMoney(slip.total_deductions)}</b></td></tr>
+      </table>
+
+      <div class="total-box">
+        <div class="label">GAJI BERSIH (Take Home Pay)</div>
+        <div class="amount">${fmtMoney(slip.net_salary)}</div>
+      </div>
+
+      <div class="signature">
+        <div>
+          <div class="line"></div>
+          <div>Penerima</div>
+          <div style="color:#666;font-size:11px;">${escapeHtml(emp.full_name)}</div>
+        </div>
+        <div>
+          <div class="line"></div>
+          <div>HR Manager</div>
+          <div style="color:#666;font-size:11px;">&nbsp;</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        Dokumen ini dicetak otomatis dari Sinar HRIS pada ${new Date().toLocaleString('id-ID')}.
+      </div>
+    </div>
+
+    <div class="no-print" style="text-align:center;margin-top:20px;">
+      <button onclick="window.print()" style="padding:10px 20px;background:#2F8F63;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:14px;">🖨️ Cetak Sekarang</button>
+      <button onclick="window.close()" style="padding:10px 20px;background:#eee;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:14px;margin-left:8px;">Tutup</button>
+    </div>
+
+    <script>
+      // Auto-trigger print saat jendela dibuka
+      window.addEventListener('load', () => setTimeout(()=>window.print(), 300));
+    <\/script>
+  </body></html>`;
+
+  // Buka jendela baru dan tulis HTML-nya
+  const w = window.open('', '_blank', 'width=900,height=700');
+  if(!w){ showToast('Popup diblokir. Izinkan popup untuk mencetak slip.', true); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 // =====================================================================
