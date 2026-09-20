@@ -135,6 +135,26 @@
   }
   .password-eye:hover{color:var(--text);}
   .password-eye svg{width:100%;height:100%;}
+
+  /* ===== Employee Detail View ===== */
+  .emp-detail-header{display:flex;gap:16px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:16px;flex-wrap:wrap;}
+  .emp-avatar-lg{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-family:'Manrope';font-weight:800;font-size:20px;flex-shrink:0;}
+  .emp-detail-meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:8px;font-size:12.5px;color:var(--text-muted);}
+  .emp-detail-meta b{color:var(--text);font-weight:600;}
+  .detail-tab-row{display:flex;gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;border-bottom:1px solid var(--border);margin-bottom:16px;padding-bottom:1px;}
+  .detail-tab-row .tab{white-space:nowrap;}
+  .movement-item{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;}
+  .movement-item:last-child{border-bottom:none;}
+  .doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
+  .doc-card{border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12.5px;}
+  @media(max-width:700px){
+    .emp-detail-header{flex-direction:column;}
+  }
+  @media print{
+    .sidebar,.topbar,.detail-tab-row,.btn,.toolbar,#modal-root,#toast-root{display:none !important;}
+    .content{padding:0;}
+    .emp-detail-header{border:none;}
+  }
 </style>
 </head>
 <body>
