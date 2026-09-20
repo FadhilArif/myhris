@@ -69,8 +69,22 @@ async function sbAll(table, opts={}){
   let q = sb.from(table).select(opts.select || '*');
   if(opts.eq) for(const k in opts.eq) q = q.eq(k, opts.eq[k]);
   if(opts.order) q = q.order(opts.order.col, {ascending: opts.order.asc !== false});
+  
   const { data, error } = await q;
-  if(error){ console.error(error); showToast('Gagal memuat data: '+error.message, true); return []; }
+  
+  if(error){ 
+    console.error('Supabase Error:', error);
+    
+    // Jika error 401 (Unauthorized) atau JWT expired, paksa logout
+    if (error.code === '401' || error.message.includes('JWT') || error.message.includes('not authenticated')) {
+      showToast('Sesi Anda telah berakhir. Silakan login kembali.', true);
+      await doLogout(); // Fungsi logout yang sudah ada
+      return [];
+    }
+    
+    showToast('Gagal memuat data: '+error.message, true); 
+    return []; 
+  }
   return data || [];
 }
 // Versi "diam": dipakai untuk tabel baru (contracts, employee_movements, audit_logs,
@@ -183,9 +197,36 @@ async function preloadMaster(){
   if(isHR()) CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
 }
 
-window.addEventListener('load', async () => {
-  const { data } = await sb.auth.getSession();
-  if(data.session) await bootAfterLogin(data.session.user);
+// =====================================================================
+// INISIALISASI AUTH & SESSION MANAGEMENT
+// =====================================================================
+
+// 1. Cek sesi saat pertama kali halaman dimuat
+(async () => {
+  const { data: { session }, error } = await sb.auth.getSession();
+  if (session) {
+    await bootAfterLogin(session.user);
+  }
+})();
+
+// 2. Pantau perubahan status login (login, logout, token refresh)
+sb.auth.onAuthStateChange(async (event, session) => {
+  console.log('Auth Event:', event);
+  
+  if (event === 'SIGNED_IN' && session) {
+    // Hanya boot jika belum ada PROFILE (mencegah double load)
+    if (!PROFILE) await bootAfterLogin(session.user);
+  } 
+  else if (event === 'SIGNED_OUT') {
+    // Bersihkan state saat logout
+    CURRENT_USER = null; PROFILE = null; ME = null;
+    el('app').style.display = 'none';
+    el('login-screen').style.display = 'flex';
+  }
+  else if (event === 'TOKEN_REFRESHED' && session) {
+    // Token diperbarui, tidak perlu boot ulang, cukup update user
+    CURRENT_USER = session.user;
+  }
 });
 
 // =====================================================================
@@ -799,8 +840,16 @@ async function submitLeaveRequest(){
 // =====================================================================
 // MODUL: PAYROLL
 // =====================================================================
+
 async function renderPayroll(){
+   if (!isHR()) {
+    el('content').innerHTML = '<div class="empty-state">Anda tidak memiliki akses ke halaman Payroll.</div>';
+    return;
+  }
+  
   const c = el('content');
+  const c = el('content');
+
   const runs = await sbAll('payroll_runs', {order:{col:'created_at', asc:false}});
   c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button></div>
     <div class="card" style="padding:0;"><table><thead><tr><th>Periode</th><th>Status</th><th></th></tr></thead>
@@ -1083,6 +1132,10 @@ async function markTrainingComplete(id, programId, name){
 // MODUL: REIMBURSEMENT / KLAIM
 // =====================================================================
 async function renderClaims(){
+   if (!isHR()) {
+    el('content').innerHTML = '<div class="empty-state">Anda tidak memiliki akses ke halaman ini.</div>';
+    return;
+  }
   const c = el('content');
   const [claims, emps] = await Promise.all([ sbAll('reimbursement_claims', {order:{col:'submitted_at', asc:false}}), sbAll('employees') ]);
   c.innerHTML = `<div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Kategori</th><th>Jumlah</th><th>Keterangan</th><th>Status</th><th></th></tr></thead>
