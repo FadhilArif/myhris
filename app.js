@@ -178,7 +178,7 @@ async function preloadMaster(){
 
 window.addEventListener('load', async () => {
   const { data } = await sb.auth.getSession();
- if(data.session) await bootAfterLogin(data.session.user);
+  if(data.session) await bootAfterLogin(data.session.user);
 });
 
 // =====================================================================
@@ -893,7 +893,6 @@ async function submitClaim(){
   if(error){ showToast(error.message, true); return; }
   showToast('Klaim terkirim.'); closeModal(); renderMyClaims();
 }
-
 // =====================================================================
 // DIREKTORI KARYAWAN (untuk employee)
 // =====================================================================
