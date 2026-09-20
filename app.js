@@ -331,15 +331,36 @@ function paintEmployees(list, query){
 }
 function openEmployeeForm(emp){
   const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}" ${emp&&emp.department_id===d.id?'selected':''}>${escapeHtml(d.name)}</option>`).join('');
-  const posOpts = CACHE.positions.map(p=>`<option value="${p.id}" ${emp&&emp.position_id===p.id?'selected':''}>${escapeHtml(p.name)}</option>`).join('');
+  
+  // Logika baru: Jika sedang edit, filter jabatan sesuai departemennya. Jika tambah baru, kosongkan dulu.
+  let initialPosOpts = '<option value="">- Pilih Departemen Dahulu -</option>';
+  if (emp && emp.department_id) {
+      initialPosOpts = CACHE.positions
+          .filter(p => p.department_id === emp.department_id)
+          .map(p => `<option value="${p.id}" ${emp.position_id===p.id?'selected':''}>${escapeHtml(p.name)}</option>`)
+          .join('');
+  }
+
   openModal(`
     <h3>${emp?'Edit':'Tambah'} Karyawan</h3>
     <div class="field"><label>Kode Karyawan</label><input id="f-code" value="${emp?escapeHtml(emp.employee_code):''}"></div>
     <div class="field"><label>Nama Lengkap</label><input id="f-name" value="${emp?escapeHtml(emp.full_name):''}"></div>
     <div class="field"><label>Email</label><input id="f-email" type="email" value="${emp?escapeHtml(emp.email||''):''}"></div>
     <div class="field"><label>Telepon</label><input id="f-phone" value="${emp?escapeHtml(emp.phone||''):''}"></div>
-    <div class="field"><label>Departemen</label><select id="f-dept"><option value="">-</option>${deptOpts}</select></div>
-    <div class="field"><label>Jabatan</label><select id="f-pos"><option value="">-</option>${posOpts}</select></div>
+    
+    <div class="field"><label>Departemen</label>
+      <select id="f-dept" onchange="updatePositionDropdown(this.value)">
+        <option value="">- Pilih Departemen -</option>
+        ${deptOpts}
+      </select>
+    </div>
+    
+    <div class="field"><label>Jabatan</label>
+      <select id="f-pos">
+        ${initialPosOpts}
+      </select>
+    </div>
+    
     <div class="field"><label>Tanggal Bergabung</label><input id="f-join" type="date" value="${emp?emp.join_date:''}"></div>
     <div class="field"><label>Gaji Pokok</label><input id="f-salary" type="number" value="${emp?emp.basic_salary:0}"></div>
     <div class="field"><label>Status</label><select id="f-status">
@@ -349,6 +370,25 @@ function openEmployeeForm(emp){
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
       <button class="btn btn-primary" onclick="saveEmployee('${emp?emp.id:''}')">Simpan</button>
     </div>`);
+}
+function updatePositionDropdown(departmentId) {
+    const posSelect = document.getElementById('f-pos');
+    
+    // Jika departemen kosong, kosongkan dropdown jabatan
+    if (!departmentId) {
+        posSelect.innerHTML = '<option value="">- Pilih Departemen Dahulu -</option>';
+        return;
+    }
+    
+    // Filter jabatan berdasarkan department_id yang dipilih
+    const filteredPositions = CACHE.positions.filter(p => p.department_id === departmentId);
+    
+    if (filteredPositions.length === 0) {
+        posSelect.innerHTML = '<option value="">- Tidak ada jabatan di unit ini -</option>';
+    } else {
+        posSelect.innerHTML = '<option value="">- Pilih Jabatan -</option>' + 
+            filteredPositions.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    }
 }
 async function saveEmployee(id){
   const payload = {
