@@ -316,15 +316,29 @@ async function renderDashboard(){
 // MODUL: DATA KARYAWAN
 // =====================================================================
 async function renderEmployees(){
+  // Ambil data terbaru dari Supabase
   CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
-  paintEmployees(CACHE.employees);
-}
-function paintEmployees(list, query){
+  
   const c = el('content');
-  const filtered = query ? list.filter(e => e.full_name.toLowerCase().includes(query.toLowerCase()) || (e.employee_code||'').toLowerCase().includes(query.toLowerCase())) : list;
+  
+  // Buat opsi untuk dropdown filter
+  const deptOpts = CACHE.departments.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  const posOpts = CACHE.positions.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+
+  // Render kerangka halaman (Toolbar + Tabel Kosong)
   c.innerHTML = `
-    <div class="toolbar">
-      <input class="search-input" placeholder="Cari nama atau kode karyawan..." oninput="paintEmployees(CACHE.employees, this.value)" value="${escapeHtml(query||'')}">
+    <div class="toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; flex:1;">
+        <input class="search-input" id="emp-search" placeholder="Cari nama atau kode karyawan..." oninput="applyEmployeeFilters()" style="max-width:260px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
+        <select id="emp-filter-dept" onchange="applyEmployeeFilters()" style="max-width:160px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
+          <option value="">Semua Unit</option>
+          ${deptOpts}
+        </select>
+        <select id="emp-filter-pos" onchange="applyEmployeeFilters()" style="max-width:160px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
+          <option value="">Semua Jabatan</option>
+          ${posOpts}
+        </select>
+      </div>
       <div style="display:flex; gap:8px;">
         <button class="btn btn-outline" onclick="openImportCSVModal()">📄 Import CSV</button>
         <button class="btn btn-primary" onclick="openEmployeeForm()">+ Tambah Karyawan</button>
@@ -333,20 +347,61 @@ function paintEmployees(list, query){
     <div class="card" style="padding:0;">
       <table>
         <thead><tr><th>Kode</th><th>Nama</th><th>Departemen</th><th>Jabatan</th><th>Bergabung</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          ${filtered.map(e => `<tr>
-            <td>${escapeHtml(e.employee_code)}</td>
-            <td>${escapeHtml(e.full_name)}</td>
-            <td>${escapeHtml(e.departments?.name||'-')}</td>
-            <td>${escapeHtml(e.positions?.name||'-')}</td>
-            <td>${fmtDate(e.join_date)}</td>
-            <td>${statusBadge(e.employment_status)}</td>
-            <td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick='openEmployeeForm(${JSON.stringify(e).replace(/'/g,"&apos;")})'>Edit</button></td>
-          </tr>`).join('') || `<tr><td colspan="7" class="empty-state">Belum ada data karyawan.</td></tr>`}
+        <tbody id="employee-table-body">
+          <!-- Data akan diisi oleh fungsi applyEmployeeFilters -->
         </tbody>
       </table>
     </div>`;
+    
+  // Panggil fungsi untuk mengisi tabel pertama kali
+  applyEmployeeFilters();
 }
+
+// Fungsi baru khusus untuk memfilter dan merender isi tabel
+function applyEmployeeFilters() {
+  const searchInput = document.getElementById('emp-search');
+  const deptFilter = document.getElementById('emp-filter-dept');
+  const posFilter = document.getElementById('emp-filter-pos');
+  const tbody = document.getElementById('employee-table-body');
+
+  // Jika elemen belum siap (misalnya saat transisi halaman), hentikan
+  if (!searchInput || !tbody) return;
+
+  const query = searchInput.value.toLowerCase();
+  const deptId = deptFilter.value;
+  const posId = posFilter.value;
+
+  // Filter data berdasarkan 3 kriteria (Search, Unit, Jabatan)
+  const filtered = CACHE.employees.filter(e => {
+    const matchQuery = !query || 
+      e.full_name.toLowerCase().includes(query) || 
+      (e.employee_code||'').toLowerCase().includes(query);
+      
+    const matchDept = !deptId || e.department_id === deptId;
+    const matchPos = !posId || e.position_id === posId;
+    
+    return matchQuery && matchDept && matchPos;
+  });
+
+  // Render baris tabelnya saja (TIDAK menimpa seluruh halaman, sehingga fokus kolom search aman)
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Tidak ada data karyawan yang cocok dengan filter.</td></tr>`;
+  } else {
+    tbody.innerHTML = filtered.map(e => `
+      <tr>
+        <td>${escapeHtml(e.employee_code)}</td>
+        <td>${escapeHtml(e.full_name)}</td>
+        <td>${escapeHtml(e.departments?.name||'-')}</td>
+        <td>${escapeHtml(e.positions?.name||'-')}</td>
+        <td>${fmtDate(e.join_date)}</td>
+        <td>${statusBadge(e.employment_status)}</td>
+        <td style="text-align:right;">
+          <button class="btn btn-outline btn-sm" onclick='openEmployeeForm(${JSON.stringify(e).replace(/'/g,"&apos;")})'>Edit</button>
+        </td>
+      </tr>`).join('');
+  }
+}
+
 function openEmployeeForm(emp){
   const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}" ${emp&&emp.department_id===d.id?'selected':''}>${escapeHtml(d.name)}</option>`).join('');
   
@@ -439,8 +494,25 @@ async function processCSV() {
             return;
         }
 
-        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+        // 1. Bersihkan BOM dan spasi, lalu ubah ke huruf kecil
+        const rawHeaders = rows[0].split(',').map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
         
+        // 2. Kamus pemetaan Header Indonesia -> Key Database
+        const headerMap = {
+            'kode karyawan': 'employee_code',
+            'nama lengkap': 'full_name',
+            'email': 'email',
+            'telepon': 'phone',
+            'departemen': 'department_name',
+            'jabatan': 'position_name',
+            'tanggal bergabung': 'join_date',
+            'gaji pokok': 'basic_salary',
+            'status': 'employment_status'
+        };
+
+        // 3. Terjemahkan header CSV ke format yang dimengerti sistem
+        const headers = rawHeaders.map(h => headerMap[h] || h);
+
         // Pastikan cache master data terbaru
         const [depts, pos] = await Promise.all([
             sbAll('departments'),
@@ -451,7 +523,6 @@ async function processCSV() {
         let successCount = 0;
 
         for (let i = 1; i < rows.length; i++) {
-            // Split sederhana berdasarkan koma (bisa dimodifikasi jika ada koma di dalam string)
             const values = rows[i].split(',').map(v => v.trim());
             const rowData = {};
             
