@@ -96,41 +96,65 @@ function closeModal(){ el('modal-root').innerHTML = ''; }
 const STAGE_LABEL = { applied:'Melamar', screening:'Screening', interview:'Interview', offer:'Penawaran', hired:'Diterima', rejected:'Tidak Lolos' };
 
 let initialLoadDone = false;
+let _loadingAll = false;      // Lock: cegah loadAll() berjalan dobel bersamaan
+let _pendingReload = false;   // Kalau ada permintaan reload saat masih loading, jalankan sekali lagi setelah selesai
+
 async function init(){
   const { data:{ session } } = await sb.auth.getSession();
   SESSION = session;
   await loadAll();
   initialLoadDone = true;
-  sb.auth.onAuthStateChange((_event, s)=>{
+  sb.auth.onAuthStateChange((event, s)=>{
     if(!initialLoadDone) return; // hindari double-load saat pertama kali buka halaman
     SESSION = s;
-    loadAll();
+    // Kalau sesi hilang karena token refresh gagal (429/expired) TAPI kita masih
+    // menganggap user sudah login, jangan langsung render "belum login" secara paksa
+    // di tengah proses lain — cukup jadwalkan reload data.
+    requestReload();
   });
 }
 
-async function loadAll(){
-  renderTopbar();
-  const { data: jobs, error: jobsErr } = await sb.from('job_postings').select('*, departments(name)').eq('status','open').order('opened_date', { ascending:false });
-  if(jobsErr){ el('jobs-area').innerHTML = `<div class="empty-state">Gagal memuat lowongan: ${escapeHtml(jobsErr.message)}</div>`; return; }
-  JOBS = jobs || [];
-
-  if(SESSION){
-    const { data: prof } = await sb.from('candidate_profiles').select('*').eq('id', SESSION.user.id).maybeSingle();
-    CPROFILE = prof || null;
-    const { data: apps } = await sb.from('candidates').select('*, job_postings(title)').eq('applicant_id', SESSION.user.id);
-    MY_APPS = apps || [];
-  } else {
-    CPROFILE = null; MY_APPS = [];
-  }
-  renderJobs();
-  renderMyApps();
+function requestReload(){
+  if(_loadingAll){ _pendingReload = true; return; }
+  loadAll();
 }
 
-function renderTopbar(){
-  if(SESSION){
+async function loadAll(){
+  if(_loadingAll){ _pendingReload = true; return; }
+  _loadingAll = true;
+  try {
+    // Ambil "snapshot" SESSION di awal supaya tidak berubah di tengah proses
+    // walau ada event auth lain yang mengubah variabel global SESSION.
+    const currentSession = SESSION;
+    renderTopbar(currentSession);
+    const { data: jobs, error: jobsErr } = await sb.from('job_postings').select('*, departments(name)').eq('status','open').order('opened_date', { ascending:false });
+    if(jobsErr){ el('jobs-area').innerHTML = `<div class="empty-state">Gagal memuat lowongan: ${escapeHtml(jobsErr.message)}</div>`; return; }
+    JOBS = jobs || [];
+
+    if(currentSession && currentSession.user){
+      const { data: prof } = await sb.from('candidate_profiles').select('*').eq('id', currentSession.user.id).maybeSingle();
+      CPROFILE = prof || null;
+      const { data: apps } = await sb.from('candidates').select('*, job_postings(title)').eq('applicant_id', currentSession.user.id);
+      MY_APPS = apps || [];
+    } else {
+      CPROFILE = null; MY_APPS = [];
+    }
+    renderJobs();
+    renderMyApps();
+  } catch(e){
+    console.error('loadAll error:', e);
+  } finally {
+    _loadingAll = false;
+    if(_pendingReload){ _pendingReload = false; loadAll(); }
+  }
+}
+
+function renderTopbar(sessionArg){
+  const s = sessionArg !== undefined ? sessionArg : SESSION;
+  if(s && s.user){
     el('topbar-actions').innerHTML = `
       <div style="display:flex;align-items:center;gap:12px;font-size:13px;color:#EDEFEA;">
-        <span>${escapeHtml(CPROFILE?.full_name || SESSION.user.email)}</span>
+        <span>${escapeHtml(CPROFILE?.full_name || s.user.email)}</span>
         ${!CPROFILE ? `<button class="btn btn-outline" style="background:#fff;" onclick="openProfileModal()">Lengkapi Profil</button>` : ''}
         <button class="btn btn-ghost" onclick="doLogout()">Keluar</button>
       </div>`;
@@ -202,8 +226,9 @@ function showAuthError(msg){ const e = el('auth-error'); e.textContent = msg; e.
 async function doLogin(){
   const email = el('auth-email').value.trim(), password = el('auth-password').value;
   if(!email || !password){ showAuthError('Lengkapi email dan kata sandi.'); return; }
-  const { error } = await sb.auth.signInWithPassword({ email, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if(error){ showAuthError(error.message); return; }
+  SESSION = data.session;
   closeModal(); showToast('Berhasil masuk.'); loadAll();
 }
 async function doSignup(){
