@@ -99,7 +99,7 @@ async function doSignup(){
   if(!email || !password || !name){ showLoginError('Lengkapi email, kata sandi, dan nama.'); return; }
   const { data, error } = await sb.auth.signUp({ email, password });
   if(error){ showLoginError(error.message); return; }
-   if(data.user){
+  if(data.user){
     const { error: insertError } = await sb.from('profiles').insert({ id: data.user.id, full_name: name, role: 'employee' });
     if (insertError) {
       showLoginError("Gagal membuat profil: " + insertError.message);
@@ -107,7 +107,6 @@ async function doSignup(){
     }
     showToast('Akun dibuat. Silakan masuk.');
     toggleSignup();
-  }
   }
 }
 function showLoginError(msg){
