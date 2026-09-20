@@ -148,8 +148,8 @@ async function doLogin(){
   if(btn){ btn.disabled = false; btn.textContent = 'Masuk'; }
   if(error){ showLoginError(error.message); return; }
   if(!data || !data.user){ showLoginError('Login gagal, coba lagi.'); return; }
-  // Langsung boot — tidak menunggu event listener
-  await bootAfterLogin(data.user);
+  // Lewat safeBoot agar tidak bentrok dengan event SIGNED_IN dari onAuthStateChange
+  await safeBoot(data.user);
 }
 async function doLogout(){
   await sb.auth.signOut();
@@ -206,54 +206,23 @@ async function preloadMaster(){
 }
 
 // =====================================================================
-// INISIALISASI AUTH — hanya boot sekali, tanpa loop
+// INISIALISASI AUTH — SATU jalur bersih (anti-loop)
+// PENTING: hanya ada SATU blok init dan SATU onAuthStateChange listener
+// di seluruh file ini. Jangan tempel blok init auth lain di bawah/atas
+// ini — itulah yang dulu menyebabkan auth loop & Supabase rate limit.
 // =====================================================================
 
-let APP_BOOTED = false;   // guard: cegah boot dobel
-
-async function initApp(){
-  if(APP_BOOTED) return;
-  APP_BOOTED = true;
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    if(session && session.user){
-      await bootAfterLogin(session.user);
-    }
-    // kalau tidak ada session: biarkan login-screen tampil (default)
-  } catch(e){
-    console.error('Init error:', e);
-    APP_BOOTED = false; // biar bisa coba lagi
-  }
-}
-
-// Boot sekali saat halaman siap
-window.addEventListener('DOMContentLoaded', initApp);
-
-// Listener HANYA untuk menangani logout dari tempat lain (misal: token expired)
-sb.auth.onAuthStateChange((event) => {
-  if(event === 'SIGNED_OUT'){
-    CURRENT_USER = null; PROFILE = null; ME = null;
-    APP_BOOTED = false;
-    el('app').style.display = 'none';
-    el('login-screen').style.display = 'flex';
-  }
-  // Event lain (SIGNED_IN, TOKEN_REFRESHED, INITIAL_SESSION) sengaja DIABAIKAN.
-  // Login manual ditangani oleh doLogin(), bukan oleh listener ini.
-});
-// =====================================================================
-// INISIALISASI AUTH — versi anti-loop (dilengkapi guard)
-// =====================================================================
-
-let _booting = false;              // Lock: cegah bootAfterLogin dobel
-let _lastSignInAt = 0;             // Throttle: cegah proses < 5 detik sekali
-const MIN_SIGNIN_GAP_MS = 5000;
+let _booting = false;              // Lock: cegah bootAfterLogin berjalan dobel bersamaan
+let _lastBootAt = 0;               // Throttle: cegah proses boot < 5 detik sekali
+const MIN_BOOT_GAP_MS = 5000;
 
 async function safeBoot(user){
   if(_booting) return;
+  if(PROFILE && CURRENT_USER && CURRENT_USER.id === user.id) return; // sudah login, tidak perlu boot ulang
   const now = Date.now();
-  if(now - _lastSignInAt < MIN_SIGNIN_GAP_MS) return;
+  if(now - _lastBootAt < MIN_BOOT_GAP_MS) return;
   _booting = true;
-  _lastSignInAt = now;
+  _lastBootAt = now;
   try {
     await bootAfterLogin(user);
   } catch(e){
@@ -263,7 +232,7 @@ async function safeBoot(user){
   }
 }
 
-// 1. Cek sesi awal (hanya sekali)
+// 1. Cek sesi awal — hanya sekali, saat script dimuat
 (async () => {
   try {
     const { data: { session } } = await sb.auth.getSession();
@@ -271,13 +240,9 @@ async function safeBoot(user){
   } catch(e){ console.error('Init error:', e); }
 })();
 
-// 2. Listener event auth (dengan throttle)
+// 2. SATU-SATUNYA listener event auth (dengan throttle bawaan safeBoot)
 sb.auth.onAuthStateChange(async (event, session) => {
-  console.log('Auth Event:', event);
-
   if (event === 'SIGNED_IN' && session && session.user) {
-    // Jangan boot ulang kalau PROFILE sudah ada (menghindari re-query)
-    if (PROFILE) return;
     await safeBoot(session.user);
   }
   else if (event === 'SIGNED_OUT') {
@@ -286,10 +251,9 @@ sb.auth.onAuthStateChange(async (event, session) => {
     el('login-screen').style.display = 'flex';
   }
   else if (event === 'TOKEN_REFRESHED' && session) {
-    // Cukup update user, tidak perlu boot ulang
-    CURRENT_USER = session.user;
+    CURRENT_USER = session.user; // cukup update, tidak perlu boot ulang
   }
-  // Sengaja abaikan event lain (INITIAL_SESSION, USER_UPDATED, dll)
+  // Event lain (INITIAL_SESSION, USER_UPDATED, dll) sengaja diabaikan.
 });
 
 // =====================================================================
@@ -530,13 +494,13 @@ function applyEmployeeFilters() {
     tbody.innerHTML = filtered.map(e => `
       <tr>
         <td>${escapeHtml(e.employee_code)}</td>
-        <td><a href="javascript:void(0)" onclick="openEmployeeDetail('${e.id}')" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">${escapeHtml(e.full_name)}</a></td>
+        <td><a href="javascript:void(0)" onclick="navigate('employee-detail/${e.id}')" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">${escapeHtml(e.full_name)}</a></td>
         <td>${escapeHtml(e.departments?.name||'-')}</td>
         <td>${escapeHtml(e.positions?.name||'-')}</td>
         <td>${fmtDate(e.join_date)}</td>
         <td>${statusBadge(e.employment_status)}</td>
         <td style="text-align:right;">
-          <button class="btn btn-outline btn-sm" onclick="openEmployeeDetail('${e.id}')">Detail</button>
+          <button class="btn btn-outline btn-sm" onclick="navigate('employee-detail/${e.id}')">Detail</button>
           <button class="btn btn-outline btn-sm" onclick='openEmployeeForm(${JSON.stringify(e).replace(/'/g,"&apos;")})'>Edit</button>
         </td>
       </tr>`).join('');
