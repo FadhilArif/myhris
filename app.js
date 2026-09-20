@@ -23,12 +23,9 @@ const ICONS = {
 // =====================================================================
 // HELPERS UMUM
 // =====================================================================
-// Fungsi untuk memformat input angka menjadi Rupiah secara real-time
 function formatNumberInput(el) {
-    // Hapus semua karakter selain angka
     let value = el.value.replace(/[^0-9]/g, '');
     if (value) {
-        // Format dengan titik sebagai pemisah ribuan
         el.value = parseInt(value, 10).toLocaleString('id-ID');
     } else {
         el.value = '';
@@ -133,7 +130,6 @@ async function bootAfterLogin(user){
   let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
   
   if(!profile){
-    // Fallback: buat profile default jika belum ada
     const { data: created, error: insertError } = await sb.from('profiles')
       .insert({ id: user.id, full_name: user.email, role: 'employee' })
       .select()
@@ -142,14 +138,13 @@ async function bootAfterLogin(user){
     if (insertError) {
       console.error("Gagal membuat profil:", insertError);
       alert("Gagal membuat profil. Pastikan policy RLS sudah diperbaiki. Error: " + insertError.message);
-      return; // Hentikan proses login jika profil benar-benar gagal dibuat
+      return;
     }
     profile = created;
   }
 
   PROFILE = profile;
   
-  // Amankan pengecekan employee_id
   if(PROFILE && PROFILE.employee_id){
     const { data: emp } = await sb.from('employees').select('*, departments(name), positions(name)').eq('id', PROFILE.employee_id).maybeSingle();
     ME = emp;
@@ -316,27 +311,22 @@ async function renderDashboard(){
 // MODUL: DATA KARYAWAN
 // =====================================================================
 async function renderEmployees(){
-  // Ambil data terbaru dari Supabase
   CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
   
   const c = el('content');
   
-  // Buat opsi untuk dropdown filter
   const deptOpts = CACHE.departments.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
-  const posOpts = CACHE.positions.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
 
-  // Render kerangka halaman (Toolbar + Tabel Kosong)
   c.innerHTML = `
     <div class="toolbar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
       <div style="display:flex; gap:10px; flex-wrap:wrap; flex:1;">
         <input class="search-input" id="emp-search" placeholder="Cari nama atau kode karyawan..." oninput="applyEmployeeFilters()" style="max-width:260px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
-        <select id="emp-filter-dept" onchange="applyEmployeeFilters()" style="max-width:160px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
+        <select id="emp-filter-dept" onchange="updateFilterPositionDropdown(this.value); applyEmployeeFilters();" style="max-width:160px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
           <option value="">Semua Unit</option>
           ${deptOpts}
         </select>
         <select id="emp-filter-pos" onchange="applyEmployeeFilters()" style="max-width:160px; padding:9px 11px; border:1px solid var(--border); border-radius:7px;">
           <option value="">Semua Jabatan</option>
-          ${posOpts}
         </select>
       </div>
       <div style="display:flex; gap:8px;">
@@ -347,31 +337,45 @@ async function renderEmployees(){
     <div class="card" style="padding:0;">
       <table>
         <thead><tr><th>Kode</th><th>Nama</th><th>Departemen</th><th>Jabatan</th><th>Bergabung</th><th>Status</th><th></th></tr></thead>
-        <tbody id="employee-table-body">
-          <!-- Data akan diisi oleh fungsi applyEmployeeFilters -->
-        </tbody>
+        <tbody id="employee-table-body"></tbody>
       </table>
     </div>`;
     
-  // Panggil fungsi untuk mengisi tabel pertama kali
   applyEmployeeFilters();
 }
 
-// Fungsi baru khusus untuk memfilter dan merender isi tabel
+// Update filter jabatan agar mengikuti unit yang dipilih
+function updateFilterPositionDropdown(departmentId) {
+    const posFilter = document.getElementById('emp-filter-pos');
+    if (!posFilter) return;
+
+    if (!departmentId) {
+        posFilter.innerHTML = '<option value="">Semua Jabatan</option>';
+        return;
+    }
+
+    const filteredPositions = CACHE.positions.filter(p => p.department_id === departmentId);
+    
+    let options = '<option value="">Semua Jabatan</option>';
+    if (filteredPositions.length > 0) {
+        options += filteredPositions.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+    }
+    
+    posFilter.innerHTML = options;
+}
+
 function applyEmployeeFilters() {
   const searchInput = document.getElementById('emp-search');
   const deptFilter = document.getElementById('emp-filter-dept');
   const posFilter = document.getElementById('emp-filter-pos');
   const tbody = document.getElementById('employee-table-body');
 
-  // Jika elemen belum siap (misalnya saat transisi halaman), hentikan
   if (!searchInput || !tbody) return;
 
   const query = searchInput.value.toLowerCase();
   const deptId = deptFilter.value;
   const posId = posFilter.value;
 
-  // Filter data berdasarkan 3 kriteria (Search, Unit, Jabatan)
   const filtered = CACHE.employees.filter(e => {
     const matchQuery = !query || 
       e.full_name.toLowerCase().includes(query) || 
@@ -383,7 +387,6 @@ function applyEmployeeFilters() {
     return matchQuery && matchDept && matchPos;
   });
 
-  // Render baris tabelnya saja (TIDAK menimpa seluruh halaman, sehingga fokus kolom search aman)
   if (filtered.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Tidak ada data karyawan yang cocok dengan filter.</td></tr>`;
   } else {
@@ -405,7 +408,6 @@ function applyEmployeeFilters() {
 function openEmployeeForm(emp){
   const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}" ${emp&&emp.department_id===d.id?'selected':''}>${escapeHtml(d.name)}</option>`).join('');
   
-  // Logika baru: Jika sedang edit, filter jabatan sesuai departemennya. Jika tambah baru, kosongkan dulu.
   let initialPosOpts = '<option value="">- Pilih Departemen Dahulu -</option>';
   if (emp && emp.department_id) {
       initialPosOpts = CACHE.positions
@@ -494,10 +496,8 @@ async function processCSV() {
             return;
         }
 
-        // 1. Bersihkan BOM dan spasi, lalu ubah ke huruf kecil
         const rawHeaders = rows[0].split(',').map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
         
-        // 2. Kamus pemetaan Header Indonesia -> Key Database
         const headerMap = {
             'kode karyawan': 'employee_code',
             'nama lengkap': 'full_name',
@@ -510,10 +510,8 @@ async function processCSV() {
             'status': 'employment_status'
         };
 
-        // 3. Terjemahkan header CSV ke format yang dimengerti sistem
         const headers = rawHeaders.map(h => headerMap[h] || h);
 
-        // Pastikan cache master data terbaru
         const [depts, pos] = await Promise.all([
             sbAll('departments'),
             sbAll('positions')
@@ -530,12 +528,9 @@ async function processCSV() {
                 rowData[header] = values[index] || '';
             });
 
-            // Mapping Nama Departemen ke ID
             const deptMatch = depts.find(d => d.name.toLowerCase() === (rowData.department_name || '').toLowerCase());
-            // Mapping Nama Jabatan ke ID (berdasarkan departemen yang cocok)
             const posMatch = pos.find(p => p.name.toLowerCase() === (rowData.position_name || '').toLowerCase() && p.department_id === (deptMatch ? deptMatch.id : null));
 
-            // Validasi kolom wajib
             if (!rowData.employee_code || !rowData.full_name) {
                 console.warn(`Baris ${i} dilewati: employee_code dan full_name wajib diisi.`);
                 continue; 
@@ -560,7 +555,6 @@ async function processCSV() {
             return;
         }
 
-        // Simpan ke Supabase menggunakan upsert agar aman jika ada duplikat employee_code
         const { error } = await sb.from('employees').upsert(payloads, { onConflict: 'employee_code' });
 
         if (error) {
@@ -570,7 +564,7 @@ async function processCSV() {
 
         showToast(`Berhasil mengimport ${successCount} data karyawan!`);
         closeModal();
-        renderEmployees(); // Refresh tabel
+        renderEmployees();
     };
 
     reader.readAsText(file);
@@ -578,13 +572,11 @@ async function processCSV() {
 function updatePositionDropdown(departmentId) {
     const posSelect = document.getElementById('f-pos');
     
-    // Jika departemen kosong, kosongkan dropdown jabatan
     if (!departmentId) {
         posSelect.innerHTML = '<option value="">- Pilih Departemen Dahulu -</option>';
         return;
     }
     
-    // Filter jabatan berdasarkan department_id yang dipilih
     const filteredPositions = CACHE.positions.filter(p => p.department_id === departmentId);
     
     if (filteredPositions.length === 0) {
