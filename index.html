@@ -1,256 +1,194 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRIS Pro - Complete System</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sinar HRIS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --sidebar:#142E28;
+    --sidebar-hover:#1D4437;
+    --sidebar-active:#2A6B52;
+    --accent:#2F8F63;
+    --accent-dark:#256F4D;
+    --bg:#F7F6F1;
+    --surface:#FFFFFF;
+    --border:#E5E2D6;
+    --text:#1C2321;
+    --text-muted:#6E766F;
+    --warning:#B8842E;
+    --warning-bg:#FBF1DE;
+    --danger:#B3402F;
+    --danger-bg:#FBEAE6;
+    --success:#2F8F63;
+    --success-bg:#E9F5EE;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.font-head{font-family:'Manrope',sans-serif;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#D8D4C4;border-radius:4px;}
+
+  #app{display:none;}
+  .layout{display:flex;min-height:100vh;}
+
+  .sidebar{
+    width:230px;flex-shrink:0;background:var(--sidebar);color:#EDEFEA;
+    display:flex;flex-direction:column;padding:20px 12px;
+  }
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 10px 22px 10px;}
+  .brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'Manrope';font-weight:800;color:#0E241E;}
+  .brand-name{font-family:'Manrope';font-weight:700;font-size:15px;letter-spacing:.2px;}
+  .nav-group{margin-bottom:14px;}
+  .nav-label{font-size:11px;color:#8FA095;padding:8px 10px 4px;letter-spacing:.3px;}
+  .nav-item{
+    display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;
+    color:#D3D9D2;font-size:13.5px;cursor:pointer;text-decoration:none;font-weight:500;
+    transition:background .12s ease;
+  }
+  .nav-item:hover{background:var(--sidebar-hover);color:#fff;}
+  .nav-item.active{background:var(--sidebar-active);color:#fff;}
+  .nav-item svg{width:17px;height:17px;flex-shrink:0;opacity:.9;}
+  .sidebar-footer{margin-top:auto;padding:12px 10px 0;border-top:1px solid #23433A;}
+  .user-chip{display:flex;align-items:center;gap:9px;}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:'Manrope';}
+  .signout{font-size:12px;color:#9FB0A5;cursor:pointer;margin-top:8px;display:inline-block;}
+  .signout:hover{color:#fff;}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{
+    background:var(--surface);border-bottom:1px solid var(--border);
+    padding:14px 26px;display:flex;align-items:center;justify-content:space-between;
+  }
+  .page-title{font-size:19px;font-weight:700;}
+  .content{padding:22px 26px 60px;flex:1;}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+  .stat-num{font-family:'Manrope';font-size:26px;font-weight:800;}
+  .stat-label{font-size:12.5px;color:var(--text-muted);margin-top:2px;}
+  .grid{display:grid;gap:14px;}
+  .grid-4{grid-template-columns:repeat(4,1fr);}
+  .grid-2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:900px){.grid-4,.grid-2{grid-template-columns:1fr 1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;color:var(--text-muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;padding:8px 10px;border-bottom:1px solid var(--border);}
+  td{padding:10px 10px;border-bottom:1px solid var(--border);}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:#FAFAF6;}
+
+  .btn{
+    font-family:'Inter';font-weight:600;font-size:13px;padding:8px 14px;border-radius:7px;border:1px solid transparent;
+    cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+  }
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent-dark);}
+  .btn-outline{background:transparent;border-color:var(--border);color:var(--text);}
+  .btn-outline:hover{border-color:#C8C4B2;}
+  .btn-danger{background:var(--danger-bg);color:var(--danger);}
+  .btn-danger:hover{opacity:.85;}
+  .btn-sm{padding:5px 10px;font-size:12px;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+
+  .badge{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;display:inline-block;}
+  .badge-success{background:var(--success-bg);color:var(--success);}
+  .badge-warning{background:var(--warning-bg);color:var(--warning);}
+  .badge-danger{background:var(--danger-bg);color:var(--danger);}
+  .badge-neutral{background:#EFEDE3;color:#6E766F;}
+
+  input,select,textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:7px;font-family:'Inter';font-size:13.5px;background:#fff;color:var(--text);
+  }
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);}
+  label{font-size:12.5px;font-weight:600;color:var(--text-muted);margin-bottom:5px;display:block;}
+  .field{margin-bottom:13px;}
+
+  .modal-backdrop{position:fixed;inset:0;background:rgba(20,30,27,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .modal{background:#fff;border-radius:12px;padding:22px;width:480px;max-width:100%;max-height:88vh;overflow:auto;}
+  .modal h3{margin:0 0 16px;}
+
+  .empty-state{text-align:center;padding:40px 10px;color:var(--text-muted);}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .search-input{max-width:260px;}
+  .tab-row{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);}
+  .tab{padding:9px 14px;font-size:13.5px;font-weight:600;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;}
+  .tab.active{color:var(--accent-dark);border-color:var(--accent);}
+  .toast{position:fixed;bottom:20px;right:20px;background:#1C2321;color:#fff;padding:11px 16px;border-radius:8px;font-size:13.5px;z-index:100;box-shadow:0 6px 20px rgba(0,0,0,.2);}
+
+  #login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--sidebar);}
+  .login-card{background:#fff;border-radius:14px;padding:38px 34px;width:380px;max-width:92vw;}
+  .login-mark{width:42px;height:42px;border-radius:10px;background:var(--accent);color:#0E241E;font-family:'Manrope';font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:16px;}
+  .login-error{background:var(--danger-bg);color:var(--danger);font-size:13px;padding:9px 12px;border-radius:7px;margin-bottom:12px;display:none;}
+  .muted-link{font-size:12.5px;color:var(--text-muted);cursor:pointer;}
+  .muted-link:hover{color:var(--text);}
+</style>
 </head>
 <body>
 
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-        <div class="sidebar-header">
-            <i class="fa-solid fa-users-gear"></i>
-            <span>HRIS Pro</span>
-        </div>
-        <ul class="sidebar-menu">
-            <li><a href="#" onclick="showView('dashboard')" id="menu-dashboard" class="active"><i class="fa-solid fa-house"></i> Dashboard</a></li>
-            
-            <li>
-                <a href="#" onclick="toggleSubmenu(event)" id="menu-karyawan"><i class="fa-solid fa-user-tie"></i> Karyawan <i class="fa-solid fa-chevron-down" style="margin-left: auto; font-size: 10px;"></i></a>
-                <ul class="submenu open" id="submenu-karyawan">
-                    <li><a href="#" onclick="showView('employees')" id="menu-employees">Data Karyawan</a></li>
-                    <li><a href="#" onclick="showView('org')" id="menu-org">Struktur Organisasi</a></li>
-                </ul>
-            </li>
-            
-            <li><a href="#" onclick="showView('attendance')" id="menu-attendance"><i class="fa-solid fa-calendar-check"></i> Absensi & Cuti</a></li>
-            <li><a href="#" onclick="showView('payroll')" id="menu-payroll"><i class="fa-solid fa-money-bill-wave"></i> Payroll</a></li>
-            <li><a href="#" onclick="showView('recruitment')" id="menu-recruitment"><i class="fa-solid fa-bullhorn"></i> Rekrutmen</a></li>
-            <li><a href="#" onclick="showView('performance')" id="menu-performance"><i class="fa-solid fa-chart-line"></i> Kinerja</a></li>
-            <li><a href="#" onclick="showView('settings')" id="menu-settings"><i class="fa-solid fa-gear"></i> Pengaturan</a></li>
-        </ul>
-    </aside>
-
-    <!-- MAIN CONTENT -->
-    <div class="main-content">
-        <!-- TOPBAR -->
-        <header class="topbar">
-            <div class="search-bar">
-                <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
-                <input type="text" id="global-search" placeholder="Cari data...">
-            </div>
-            <div class="topbar-right">
-                <i class="fa-solid fa-bell"></i>
-                <i class="fa-solid fa-comment-dots"></i>
-                <div class="user-profile">
-                    <img src="https://ui-avatars.com/api/?name=HR+Admin&background=2e7d32&color=fff" alt="Profile">
-                    <span style="font-size: 14px; font-weight: 600;">HR Admin <i class="fa-solid fa-chevron-down" style="font-size: 10px;"></i></span>
-                </div>
-            </div>
-        </header>
-
-        <div class="content-area">
-            
-            <!-- ================= VIEW: DASHBOARD ================= -->
-            <div id="view-dashboard" class="view-section active">
-                <div class="page-header">
-                    <h1>Dashboard</h1>
-                </div>
-                <div class="info-card">
-                    <div class="info-group">
-                        <label>Total Karyawan</label>
-                        <span id="dash-total-emp">0</span>
-                    </div>
-                    <div class="info-group">
-                        <label>Pelamar Aktif</label>
-                        <span id="dash-total-applicant">0</span>
-                    </div>
-                    <div class="info-group">
-                        <label>Total Payroll Bulan Ini</label>
-                        <span id="dash-total-payroll">Rp 0</span>
-                    </div>
-                    <div class="info-group">
-                        <label>Absensi Hari Ini</label>
-                        <span id="dash-total-attendance">0</span>
-                    </div>
-                </div>
-                <div class="table-card">
-                    <h3>Selamat Datang di HRIS Pro</h3>
-                    <p style="color: var(--text-muted); margin-top: 10px;">Silakan pilih menu di sidebar untuk mengelola data karyawan, absensi, payroll, rekrutmen, dan kinerja.</p>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: EMPLOYEES ================= -->
-            <div id="view-employees" class="view-section">
-                <div class="page-header">
-                    <h1>Data Karyawan</h1>
-                    <div class="header-actions">
-                        <i class="fa-solid fa-download" title="Export Data" onclick="exportToCSV('employees')"></i>
-                        <i class="fa-solid fa-print" title="Print" onclick="window.print()"></i>
-                    </div>
-                </div>
-                <div class="table-card">
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th><th>ID Karyawan</th><th>Nama Lengkap</th><th>Departemen</th><th>Jabatan</th><th>Tanggal Masuk</th><th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody id="employee-table-body">
-                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="table-footer">
-                        <div class="footer-left">
-                            <button class="btn btn-outline" onclick="openModal('employee')"><i class="fa-solid fa-plus"></i> Tambah Karyawan</button>
-                        </div>
-                        <div class="footer-right">
-                            <div><div class="total-text">Total Data</div><div class="total-amount" id="total-count-emp">0</div></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: ABSENSI ================= -->
-            <div id="view-attendance" class="view-section">
-                <div class="page-header">
-                    <h1>Absensi & Cuti</h1>
-                </div>
-                <div class="table-card">
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr><th>#</th><th>Nama Karyawan</th><th>Tanggal</th><th>Status</th><th>Check In</th><th>Check Out</th><th>Aksi</th></tr>
-                            </thead>
-                            <tbody id="attendance-table-body">
-                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="table-footer">
-                        <div class="footer-left">
-                            <button class="btn btn-outline" onclick="openModal('attendance')"><i class="fa-solid fa-plus"></i> Tambah Absensi</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: PAYROLL ================= -->
-            <div id="view-payroll" class="view-section">
-                <div class="page-header">
-                    <h1>Payroll</h1>
-                </div>
-                <div class="table-card">
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr><th>#</th><th>Nama Karyawan</th><th>Bulan</th><th>Gaji Pokok</th><th>Tunjangan</th><th>Potongan</th><th>Gaji Bersih</th><th>Aksi</th></tr>
-                            </thead>
-                            <tbody id="payroll-table-body">
-                                <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="table-footer">
-                        <div class="footer-left">
-                            <button class="btn btn-outline" onclick="openModal('payroll')"><i class="fa-solid fa-plus"></i> Tambah Payroll</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: REKRUTMEN ================= -->
-            <div id="view-recruitment" class="view-section">
-                <div class="page-header">
-                    <h1>Rekrutmen</h1>
-                </div>
-                <div class="table-card">
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr><th>#</th><th>Nama Pelamar</th><th>Posisi</th><th>Status</th><th>Tanggal Apply</th><th>Aksi</th></tr>
-                            </thead>
-                            <tbody id="recruitment-table-body">
-                                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="table-footer">
-                        <div class="footer-left">
-                            <button class="btn btn-outline" onclick="openModal('recruitment')"><i class="fa-solid fa-plus"></i> Tambah Pelamar</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: KINERJA ================= -->
-            <div id="view-performance" class="view-section">
-                <div class="page-header">
-                    <h1>Kinerja</h1>
-                </div>
-                <div class="table-card">
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr><th>#</th><th>Nama Karyawan</th><th>Periode</th><th>Skor</th><th>Catatan</th><th>Aksi</th></tr>
-                            </thead>
-                            <tbody id="performance-table-body">
-                                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="table-footer">
-                        <div class="footer-left">
-                            <button class="btn btn-outline" onclick="openModal('performance')"><i class="fa-solid fa-plus"></i> Tambah Penilaian</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: PENGATURAN ================= -->
-            <div id="view-settings" class="view-section">
-                <div class="page-header"><h1>Pengaturan</h1></div>
-                <div class="table-card">
-                    <h3>Pengaturan Sistem</h3>
-                    <p style="color: var(--text-muted); margin-top: 10px;">Halaman ini dapat digunakan untuk mengatur profil perusahaan, kebijakan cuti, dan konfigurasi payroll.</p>
-                </div>
-            </div>
-
-            <!-- ================= VIEW: STRUKTUR ORGANISASI ================= -->
-            <div id="view-org" class="view-section">
-                <div class="page-header"><h1>Struktur Organisasi</h1></div>
-                <div class="table-card">
-                    <p style="color: var(--text-muted);">Fitur bagan organisasi akan ditampilkan di sini.</p>
-                </div>
-            </div>
-
-        </div>
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-mark">H</div>
+    <h2 style="margin:0 0 4px;">Sinar HRIS</h2>
+    <p style="color:var(--text-muted);font-size:13.5px;margin:0 0 20px;">Masuk untuk mengakses sistem HR perusahaan.</p>
+    <div class="login-error" id="login-error"></div>
+    <div class="field"><label>Email</label><input id="login-email" type="email" placeholder="nama@perusahaan.com"></div>
+    <div class="field"><label>Kata Sandi</label><input id="login-password" type="password" placeholder="••••••••"></div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center;padding:10px;" onclick="doLogin()">Masuk</button>
+    <p style="text-align:center;margin-top:14px;">
+      <span class="muted-link" onclick="toggleSignup()" id="signup-toggle">Belum punya akun? Daftar</span>
+    </p>
+    <div id="signup-extra" style="display:none;">
+      <div class="field"><label>Nama Lengkap</label><input id="signup-name" placeholder="Nama lengkap"></div>
+      <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="doSignup()">Buat Akun (role: employee)</button>
+      <p style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">Akun baru otomatis berstatus <b>employee</b>. Admin HR perlu menautkan akun ini ke data karyawan &amp; menaikkan role dari menu Pengaturan.</p>
     </div>
+  </div>
+</div>
 
-    <!-- MODAL UNIVERSAL -->
-    <div class="modal" id="universalModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modal-title">Form</h2>
-                <i class="fa-solid fa-times" onclick="closeModal()"></i>
-            </div>
-            <form id="universalForm">
-                <div id="dynamic-form-fields"></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline" onclick="closeModal()">Batal</button>
-                    <button type="submit" class="btn btn-primary" id="modal-submit-btn">Simpan</button>
-                </div>
-            </form>
+<!-- ===================== APP SHELL ===================== -->
+<div id="app">
+  <div class="layout">
+    <div class="sidebar">
+      <div class="brand"><div class="brand-mark">H</div><div class="brand-name">Sinar HRIS</div></div>
+      <div id="nav-container"></div>
+      <div class="sidebar-footer">
+        <div class="user-chip">
+          <div class="avatar" id="user-avatar">?</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#fff;" id="user-name">-</div>
+            <div style="font-size:11px;color:#9FB0A5;" id="user-role">-</div>
+          </div>
         </div>
+        <span class="signout" onclick="doLogout()">Keluar</span>
+      </div>
     </div>
+    <div class="main">
+      <div class="topbar">
+        <div class="page-title" id="page-title">Dashboard</div>
+        <div style="font-size:12.5px;color:var(--text-muted);" id="topbar-date"></div>
+      </div>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js"></script>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+// =====================================================================
+// KONFIGURASI SUPABASE — ganti dengan URL & anon key project kamu
+// =====================================================================
+const SUPABASE_URL = "https://viawltcutsvaawvjqgsk.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpYXdsdGN1dHN2YWF3dmpxZ3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NjUwODQsImV4cCI6MjEwNTQ0MTA4NH0.hhpVS35YUbadEGagHG7aA7A5DFxlrd4VOZz7mxO0dJo";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
+<script src="app.js"></script>
 </body>
 </html>
