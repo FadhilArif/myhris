@@ -141,15 +141,24 @@ async function doLogin(){
   const email = el('login-email').value.trim();
   const password = el('login-password').value;
   if(!email || !password){ showLoginError('Isi email dan kata sandi.'); return; }
+  // Disable tombol biar tidak double-submit
+  const btn = document.querySelector('button[onclick="doLogin()"]');
+  if(btn){ btn.disabled = true; btn.textContent = 'Memuat…'; }
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if(btn){ btn.disabled = false; btn.textContent = 'Masuk'; }
   if(error){ showLoginError(error.message); return; }
+  if(!data || !data.user){ showLoginError('Login gagal, coba lagi.'); return; }
+  // Langsung boot — tidak menunggu event listener
   await bootAfterLogin(data.user);
 }
 async function doLogout(){
   await sb.auth.signOut();
   CURRENT_USER = null; PROFILE = null; ME = null;
+  APP_BOOTED = false;
   el('app').style.display = 'none';
   el('login-screen').style.display = 'flex';
+  if(el('login-password')) el('login-password').value = '';
+  if(el('login-error')) el('login-error').style.display = 'none';
 }
 async function bootAfterLogin(user){
   CURRENT_USER = user;
@@ -197,16 +206,40 @@ async function preloadMaster(){
 }
 
 // =====================================================================
-// INISIALISASI AUTH & SESSION MANAGEMENT
+// INISIALISASI AUTH — hanya boot sekali, tanpa loop
 // =====================================================================
 
-// 1. Cek sesi saat pertama kali halaman dimuat
-(async () => {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) {
-    await bootAfterLogin(session.user);
+let APP_BOOTED = false;   // guard: cegah boot dobel
+
+async function initApp(){
+  if(APP_BOOTED) return;
+  APP_BOOTED = true;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if(session && session.user){
+      await bootAfterLogin(session.user);
+    }
+    // kalau tidak ada session: biarkan login-screen tampil (default)
+  } catch(e){
+    console.error('Init error:', e);
+    APP_BOOTED = false; // biar bisa coba lagi
   }
-})();
+}
+
+// Boot sekali saat halaman siap
+window.addEventListener('DOMContentLoaded', initApp);
+
+// Listener HANYA untuk menangani logout dari tempat lain (misal: token expired)
+sb.auth.onAuthStateChange((event) => {
+  if(event === 'SIGNED_OUT'){
+    CURRENT_USER = null; PROFILE = null; ME = null;
+    APP_BOOTED = false;
+    el('app').style.display = 'none';
+    el('login-screen').style.display = 'flex';
+  }
+  // Event lain (SIGNED_IN, TOKEN_REFRESHED, INITIAL_SESSION) sengaja DIABAIKAN.
+  // Login manual ditangani oleh doLogin(), bukan oleh listener ini.
+});
 // =====================================================================
 // INISIALISASI AUTH — versi anti-loop (dilengkapi guard)
 // =====================================================================
@@ -301,10 +334,29 @@ function buildNav(){
       ${g.items.map(it => `<a class="nav-item" data-route="${it.route}" onclick="navigate('${it.route}')">${ICONS[it.icon]}<span>${it.label}</span></a>`).join('')}
     </div>`).join('');
 }
+// Daftar route yang hanya boleh diakses HR/Admin
+const HR_ONLY_ROUTES = ['employees','attendance','leave','payroll','recruitment','performance','claims','settings','employee-detail'];
+
+function canAccessRoute(base){
+  if(isHR()) return true; // HR: akses semua
+  // Employee: hanya boleh akses route berikut
+  const employeeRoutes = ['dashboard','my-attendance','my-leave','my-payslip','my-claims','directory','training'];
+  return employeeRoutes.includes(base);
+}
+
 function navigate(route){
-  location.hash = route;
   const [base, param] = route.split('/');
+
+  // Route guard: cek hak akses
+  if(!canAccessRoute(base)){
+    showToast('Anda tidak memiliki akses ke halaman ini.', true);
+    location.hash = 'dashboard';
+    return;
+  }
+
+  location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
+
   const titles = {
     dashboard:'Dashboard', employees:'Data Karyawan', attendance:'Absensi', leave:'Cuti & Izin', payroll:'Payroll',
     recruitment:'Rekrutmen', performance:'Penilaian Kinerja', training:'Training & Development', claims:'Reimbursement',
@@ -312,6 +364,7 @@ function navigate(route){
     'my-claims':'Klaim Saya', directory:'Direktori Karyawan', 'employee-detail':'Profil Karyawan'
   };
   el('page-title').textContent = titles[base] || 'Dashboard';
+
   const renderers = {
     dashboard: renderDashboard, employees: renderEmployees, attendance: renderAttendance, leave: renderLeave,
     payroll: renderPayroll, recruitment: renderRecruitment, performance: renderPerformance, training: renderTraining,
@@ -321,8 +374,6 @@ function navigate(route){
   };
   (renderers[base] || renderDashboard)();
 }
-window.addEventListener('hashchange', () => { if(PROFILE) navigate(location.hash.replace('#','') || 'dashboard'); });
-function openEmployeeDetail(employeeId){ navigate('employee-detail/'+employeeId); }
 
 // =====================================================================
 // MODUL: DASHBOARD
