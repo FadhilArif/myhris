@@ -23,6 +23,17 @@ const ICONS = {
 // =====================================================================
 // HELPERS UMUM
 // =====================================================================
+// Fungsi untuk memformat input angka menjadi Rupiah secara real-time
+function formatNumberInput(el) {
+    // Hapus semua karakter selain angka
+    let value = el.value.replace(/[^0-9]/g, '');
+    if (value) {
+        // Format dengan titik sebagai pemisah ribuan
+        el.value = parseInt(value, 10).toLocaleString('id-ID');
+    } else {
+        el.value = '';
+    }
+}
 function el(id){ return document.getElementById(id); }
 function fmtMoney(n){ return 'Rp' + Math.round(n||0).toLocaleString('id-ID'); }
 function fmtDate(d){ if(!d) return '-'; return new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}); }
@@ -362,7 +373,9 @@ function openEmployeeForm(emp){
     </div>
     
     <div class="field"><label>Tanggal Bergabung</label><input id="f-join" type="date" value="${emp?emp.join_date:''}"></div>
-    <div class="field"><label>Gaji Pokok</label><input id="f-salary" type="number" value="${emp?emp.basic_salary:0}"></div>
+  <div class="field"><label>Gaji Pokok</label>
+  <input id="f-salary" type="text" oninput="formatNumberInput(this)" value="${emp ? parseInt(emp.basic_salary).toLocaleString('id-ID') : '0'}">
+</div>
     <div class="field"><label>Status</label><select id="f-status">
       ${['active','probation','resigned','terminated'].map(s=>`<option value="${s}" ${emp&&emp.employment_status===s?'selected':''}>${s}</option>`).join('')}
     </select></div>
@@ -396,7 +409,7 @@ async function saveEmployee(id){
     email: el('f-email').value.trim() || null, phone: el('f-phone').value.trim() || null,
     department_id: el('f-dept').value || null, position_id: el('f-pos').value || null,
     join_date: el('f-join').value || new Date().toISOString().slice(0,10),
-    basic_salary: Number(el('f-salary').value)||0, employment_status: el('f-status').value
+    basic_salary: Number(el('f-salary').value.replace(/\./g, '')) || 0
   };
   if(!payload.employee_code || !payload.full_name){ showToast('Kode dan nama wajib diisi.', true); return; }
   const { error } = id ? await sb.from('employees').update(payload).eq('id', id) : await sb.from('employees').insert(payload);
@@ -861,7 +874,9 @@ async function renderMyClaims(){
 function openClaimForm(){
   openModal(`<h3>Ajukan Klaim Reimbursement</h3>
     <div class="field"><label>Kategori</label><input id="rc-cat" placeholder="Transport, Medis, dll"></div>
-    <div class="field"><label>Jumlah</label><input id="rc-amount" type="number"></div>
+<div class="field"><label>Jumlah</label>
+  <input id="rc-amount" type="text" oninput="formatNumberInput(this)" placeholder="0">
+</div>
     <div class="field"><label>Keterangan</label><textarea id="rc-desc" rows="3"></textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
@@ -869,7 +884,7 @@ function openClaimForm(){
     </div>`);
 }
 async function submitClaim(){
-  const { error } = await sb.from('reimbursement_claims').insert({ employee_id: ME.id, category: el('rc-cat').value.trim(), amount: Number(el('rc-amount').value)||0, description: el('rc-desc').value.trim() });
+  const { error } = await sb.from('reimbursement_claims').insert({ employee_id: ME.id, category: el('rc-cat').value.trim(), amount: Number(el('rc-amount').value.replace(/\./g, '')) || 0
   if(error){ showToast(error.message, true); return; }
   showToast('Klaim terkirim.'); closeModal(); renderMyClaims();
 }
@@ -959,14 +974,16 @@ function openPayrollCompForm(){
     <div class="field"><label>Nama</label><input id="pc-name"></div>
     <div class="field"><label>Tipe</label><select id="pc-type"><option value="earning">Pendapatan</option><option value="deduction">Potongan</option></select></div>
     <div class="field"><label>Nilai adalah Persentase?</label><select id="pc-pct"><option value="false">Tidak (nominal tetap)</option><option value="true">Ya (%)</option></select></div>
-    <div class="field"><label>Nilai Default</label><input id="pc-amount" type="number" value="0"></div>
+<div class="field"><label>Nilai Default</label>
+  <input id="pc-amount" type="text" oninput="formatNumberInput(this)" value="0">
+</div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
       <button class="btn btn-primary" onclick="savePayrollComp()">Simpan</button>
     </div>`);
 }
 async function savePayrollComp(){
-  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value)||0 });
+  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value.replace(/\./g, '')) || 0
   if(error){ showToast(error.message, true); return; }
   showToast('Komponen ditambahkan.'); closeModal(); loadPayrollCompSettings();
 }
