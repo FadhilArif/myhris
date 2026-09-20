@@ -207,23 +207,56 @@ async function preloadMaster(){
     await bootAfterLogin(session.user);
   }
 })();
+// =====================================================================
+// INISIALISASI AUTH — versi anti-loop (dilengkapi guard)
+// =====================================================================
 
-// 2. Pantau perubahan status login (login, logout, token refresh)
+let _booting = false;              // Lock: cegah bootAfterLogin dobel
+let _lastSignInAt = 0;             // Throttle: cegah proses < 5 detik sekali
+const MIN_SIGNIN_GAP_MS = 5000;
+
+async function safeBoot(user){
+  if(_booting) return;
+  const now = Date.now();
+  if(now - _lastSignInAt < MIN_SIGNIN_GAP_MS) return;
+  _booting = true;
+  _lastSignInAt = now;
+  try {
+    await bootAfterLogin(user);
+  } catch(e){
+    console.error('Boot error:', e);
+  } finally {
+    _booting = false;
+  }
+}
+
+// 1. Cek sesi awal (hanya sekali)
+(async () => {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session && session.user) await safeBoot(session.user);
+  } catch(e){ console.error('Init error:', e); }
+})();
+
+// 2. Listener event auth (dengan throttle)
 sb.auth.onAuthStateChange(async (event, session) => {
   console.log('Auth Event:', event);
-  
-  if (event === 'SIGNED_IN' && session) {
-    // Hanya boot jika belum ada PROFILE (mencegah double load)
-    if (!PROFILE) await bootAfterLogin(session.user);
-  } 
+
+  if (event === 'SIGNED_IN' && session && session.user) {
+    // Jangan boot ulang kalau PROFILE sudah ada (menghindari re-query)
+    if (PROFILE) return;
+    await safeBoot(session.user);
+  }
   else if (event === 'SIGNED_OUT') {
     CURRENT_USER = null; PROFILE = null; ME = null;
     el('app').style.display = 'none';
     el('login-screen').style.display = 'flex';
   }
   else if (event === 'TOKEN_REFRESHED' && session) {
+    // Cukup update user, tidak perlu boot ulang
     CURRENT_USER = session.user;
   }
+  // Sengaja abaikan event lain (INITIAL_SESSION, USER_UPDATED, dll)
 });
 
 // =====================================================================
