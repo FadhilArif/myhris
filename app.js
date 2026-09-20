@@ -872,7 +872,10 @@ async function renderMyPayslip(){
 async function renderRecruitment(){
   const c = el('content');
   const [jobs, depts] = await Promise.all([ sbAll('job_postings', {order:{col:'opened_date', asc:false}}), sbAll('departments') ]);
-  c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openJobForm()">+ Buka Lowongan</button></div>
+  c.innerHTML = `<div class="toolbar"><span></span>
+      <button class="btn btn-outline" onclick="copyCareerPageLink()">🔗 Salin Link Halaman Karir</button>
+      <button class="btn btn-primary" onclick="openJobForm()">+ Buka Lowongan</button>
+    </div>
     <div class="grid grid-2">${jobs.map(j=>`
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:start;">
@@ -880,9 +883,41 @@ async function renderRecruitment(){
           ${statusBadge(j.status)}
         </div>
         <p style="font-size:13px;color:var(--text-muted);">${escapeHtml(j.description||'')}</p>
-        <button class="btn btn-outline btn-sm" onclick="viewCandidates('${j.id}','${escapeHtml(j.title)}')">Lihat Kandidat</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick="viewCandidates('${j.id}','${escapeHtml(j.title)}')">Lihat Kandidat</button>
+          ${j.status==='open'
+            ? `<button class="btn btn-outline btn-sm" onclick="closeJobPosting('${j.id}')">Tutup Lowongan</button>`
+            : `<button class="btn btn-outline btn-sm" onclick="reopenJobPosting('${j.id}')">Buka Kembali</button>`}
+          <button class="btn btn-danger btn-sm" onclick="deleteJobPosting('${j.id}')">Hapus</button>
+        </div>
       </div>`).join('') || '<div class="empty-state">Belum ada lowongan dibuka.</div>'}</div>
     <div id="candidate-area" style="margin-top:18px;"></div>`;
+}
+function copyCareerPageLink(){
+  const url = location.origin + '/career.html';
+  navigator.clipboard.writeText(url).then(()=>{
+    showToast('Link halaman karir disalin: '+url);
+  }).catch(()=>{
+    prompt('Salin link halaman karir ini secara manual:', url);
+  });
+}
+async function closeJobPosting(jobId){
+  const { error } = await sb.from('job_postings').update({ status: 'closed' }).eq('id', jobId);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Lowongan ditutup. Halaman karir tidak lagi menampilkannya.'); renderRecruitment();
+}
+async function reopenJobPosting(jobId){
+  const { error } = await sb.from('job_postings').update({ status: 'open' }).eq('id', jobId);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Lowongan dibuka kembali.'); renderRecruitment();
+}
+async function deleteJobPosting(jobId){
+  if(!confirm('Hapus lowongan ini beserta seluruh data kandidat yang melamar? Tindakan ini tidak bisa dibatalkan.')) return;
+  const delCand = await sb.from('candidates').delete().eq('job_posting_id', jobId);
+  if(delCand.error){ showToast('Gagal menghapus kandidat terkait: '+delCand.error.message, true); return; }
+  const { error } = await sb.from('job_postings').delete().eq('id', jobId);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Lowongan dihapus.'); renderRecruitment();
 }
 function openJobForm(){
   const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
