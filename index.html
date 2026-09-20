@@ -4,426 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HRIS Dashboard - Employee Directory</title>
-    <!-- Font Awesome untuk Ikon -->
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary-green: #2e7d32;
-            --primary-green-hover: #1b5e20;
-            --bg-light: #f4f7f6;
-            --white: #ffffff;
-            --text-dark: #333333;
-            --text-muted: #777777;
-            --border-color: #e0e0e0;
-            --danger: #e53935;
-            --warning: #fb8c00;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Inter', sans-serif;
-        }
-
-        body {
-            background-color: var(--bg-light);
-            color: var(--text-dark);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* --- SIDEBAR --- */
-        .sidebar {
-            width: 260px;
-            background-color: var(--white);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            transition: all 0.3s;
-        }
-
-        .sidebar-header {
-            padding: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--primary-green);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .sidebar-menu {
-            list-style: none;
-            padding: 15px 10px;
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-
-        .sidebar-menu li {
-            margin-bottom: 5px;
-        }
-
-        .sidebar-menu a {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 15px;
-            color: var(--text-muted);
-            text-decoration: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-
-        .sidebar-menu a:hover, .sidebar-menu a.active {
-            background-color: #e8f5e9;
-            color: var(--primary-green);
-            font-weight: 600;
-        }
-
-        .sidebar-menu a.active i {
-            color: var(--primary-green);
-        }
-
-        .sidebar-menu .submenu {
-            list-style: none;
-            padding-left: 40px;
-            display: none;
-        }
-
-        .sidebar-menu .submenu.open {
-            display: block;
-        }
-
-        .sidebar-menu .submenu a {
-            padding: 8px 15px;
-            font-size: 13px;
-        }
-
-        /* --- MAIN CONTENT --- */
-        .main-content {
-            flex-grow: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        /* Header */
-        .topbar {
-            background-color: var(--white);
-            padding: 15px 30px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .search-bar {
-            display: flex;
-            align-items: center;
-            background-color: var(--bg-light);
-            padding: 8px 15px;
-            border-radius: 8px;
-            width: 300px;
-        }
-
-        .search-bar input {
-            border: none;
-            background: transparent;
-            outline: none;
-            margin-left: 10px;
-            width: 100%;
-            font-size: 14px;
-        }
-
-        .topbar-right {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .topbar-right i {
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 18px;
-        }
-
-        .user-profile {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-
-        .user-profile img {
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            object-fit: cover;
-        }
-
-        /* Content Area */
-        .content-area {
-            padding: 30px;
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
-        }
-
-        .page-header h1 {
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--text-dark);
-        }
-
-        .header-actions i {
-            margin-left: 15px;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 18px;
-        }
-
-        /* Info Card */
-        .info-card {
-            background-color: var(--white);
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .info-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .info-group label {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .info-group span {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-dark);
-        }
-
-        /* Table Card */
-        .table-card {
-            background-color: var(--white);
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
-        }
-
-        .table-responsive {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-
-        th {
-            text-align: left;
-            padding: 15px 10px;
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        td {
-            padding: 15px 10px;
-            font-size: 14px;
-            color: var(--text-dark);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        .actions-cell {
-            display: flex;
-            gap: 10px;
-        }
-
-        .actions-cell i {
-            cursor: pointer;
-            font-size: 16px;
-            transition: color 0.2s;
-        }
-
-        .actions-cell .edit-icon { color: var(--warning); }
-        .actions-cell .delete-icon { color: var(--danger); }
-
-        /* Footer Actions */
-        .table-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .footer-left {
-            display: flex;
-            gap: 10px;
-        }
-
-        .footer-right {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-        }
-
-        .total-text {
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        .total-amount {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--primary-green);
-        }
-
-        /* Buttons */
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .btn-outline {
-            background-color: transparent;
-            border: 1px solid var(--border-color);
-            color: var(--text-dark);
-        }
-
-        .btn-outline:hover {
-            background-color: var(--bg-light);
-        }
-
-        .btn-primary {
-            background-color: var(--primary-green);
-            color: var(--white);
-        }
-
-        .btn-primary:hover {
-            background-color: var(--primary-green-hover);
-        }
-
-        .btn-danger-outline {
-            background-color: transparent;
-            border: 1px solid var(--danger);
-            color: var(--danger);
-        }
-
-        .btn-danger-outline:hover {
-            background-color: #ffebee;
-        }
-
-        /* Modal */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-
-        .modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: var(--white);
-            padding: 30px;
-            border-radius: 12px;
-            width: 100%;
-            max-width: 500px;
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .modal-header h2 {
-            font-size: 20px;
-        }
-
-        .modal-header i {
-            cursor: pointer;
-            font-size: 20px;
-            color: var(--text-muted);
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .form-group input, .form-group select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 14px;
-            outline: none;
-        }
-
-        .form-group input:focus, .form-group select:focus {
-            border-color: var(--primary-green);
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-            margin-top: 25px;
-        }
-    </style>
+    <!-- CSS Eksternal -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -457,7 +43,7 @@
         <header class="topbar">
             <div class="search-bar">
                 <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
-                <input type="text" placeholder="Cari karyawan, departemen...">
+                <input type="text" id="search-input" placeholder="Cari karyawan, departemen...">
             </div>
             <div class="topbar-right">
                 <i class="fa-solid fa-bell"></i>
@@ -474,12 +60,12 @@
             <div class="page-header">
                 <h1>Data Karyawan</h1>
                 <div class="header-actions">
-                    <i class="fa-solid fa-download" title="Export Data"></i>
-                    <i class="fa-solid fa-print" title="Print"></i>
+                    <i class="fa-solid fa-download" title="Export Data" onclick="exportToCSV()"></i>
+                    <i class="fa-solid fa-print" title="Print" onclick="window.print()"></i>
                 </div>
             </div>
 
-            <!-- Info Card (Seperti di gambar) -->
+            <!-- Info Card -->
             <div class="info-card">
                 <div class="info-group">
                     <label>Total Karyawan</label>
@@ -515,17 +101,16 @@
                             </tr>
                         </thead>
                         <tbody id="employee-table-body">
-                            <!-- Data akan diisi oleh JavaScript -->
                             <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <!-- Footer Actions (Seperti di gambar) -->
+                <!-- Footer Actions -->
                 <div class="table-footer">
                     <div class="footer-left">
                         <button class="btn btn-outline" onclick="openModal()"><i class="fa-solid fa-plus"></i> Tambah Karyawan</button>
-                        <button class="btn btn-outline"><i class="fa-solid fa-file-export"></i> Export CSV</button>
+                        <button class="btn btn-outline" onclick="exportToCSV()"><i class="fa-solid fa-file-export"></i> Export CSV</button>
                     </div>
                     <div class="footer-right">
                         <div>
@@ -540,14 +125,17 @@
         </main>
     </div>
 
-    <!-- MODAL TAMBAH KARYAWAN -->
+    <!-- MODAL TAMBAH/EDIT KARYAWAN -->
     <div class="modal" id="employeeModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Tambah Karyawan Baru</h2>
+                <h2 id="modal-title">Tambah Karyawan Baru</h2>
                 <i class="fa-solid fa-times" onclick="closeModal()"></i>
             </div>
             <form id="employeeForm">
+                <!-- Hidden ID untuk Edit -->
+                <input type="hidden" id="emp_db_id">
+                
                 <div class="form-group">
                     <label>ID Karyawan</label>
                     <input type="text" id="emp_id" required placeholder="Contoh: EMP-001">
@@ -570,7 +158,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">Batal</button>
-                    <button type="submit" class="btn btn-primary">Simpan Karyawan</button>
+                    <button type="submit" class="btn btn-primary" id="modal-submit-btn">Simpan Karyawan</button>
                 </div>
             </form>
         </div>
@@ -578,152 +166,7 @@
 
     <!-- SUPABASE JS CLIENT -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <!-- APP LOGIC (GATEWAY) -->
-    <script>
-        // ==========================================
-        // 1. KONFIGURASI SUPABASE (GANTI DENGAN MILIK ANDA)
-        // ==========================================
-        const SUPABASE_URL = 'https://xskfuiblphowpdjriieo.supabase.co'; // Ganti dengan URL Project Anda
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhza2Z1aWJscGhvd3BkanJpaWVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NTcwMTMsImV4cCI6MjEwNTQzMzAxM30.ZDy7zrmC1v0IDg2ELrWc_WByx8QUk_gi_Mw2O_JyEAM'; // Ganti dengan Anon Key Anda
-
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-        // ==========================================
-        // 2. FUNGSI CRUD (GATEWAY)
-        // ==========================================
-
-        // READ: Mengambil data dari Supabase
-        async function fetchEmployees() {
-            const { data, error } = await supabaseClient
-                .from('employees')
-                .select('*')
-                .order('id', { ascending: true });
-
-            if (error) {
-                console.error('Error fetching data:', error);
-                alert('Gagal mengambil data dari database.');
-                return;
-            }
-
-            renderTable(data);
-            updateStats(data);
-        }
-
-        // CREATE: Menambah data ke Supabase
-        async function addEmployee(employeeData) {
-            const { data, error } = await supabaseClient
-                .from('employees')
-                .insert([employeeData]);
-
-            if (error) {
-                console.error('Error adding data:', error);
-                alert('Gagal menambah data: ' + error.message);
-                return;
-            }
-
-            alert('Karyawan berhasil ditambahkan!');
-            closeModal();
-            fetchEmployees(); // Refresh tabel
-        }
-
-        // DELETE: Menghapus data dari Supabase
-        async function deleteEmployee(id) {
-            if (!confirm('Apakah Anda yakin ingin menghapus karyawan ini?')) return;
-
-            const { error } = await supabaseClient
-                .from('employees')
-                .delete()
-                .eq('id', id);
-
-            if (error) {
-                console.error('Error deleting data:', error);
-                alert('Gagal menghapus data.');
-                return;
-            }
-
-            fetchEmployees(); // Refresh tabel
-        }
-
-        // ==========================================
-        // 3. FUNGSI UI / RENDERING
-        // ==========================================
-
-        function renderTable(data) {
-            const tbody = document.getElementById('employee-table-body');
-            tbody.innerHTML = '';
-
-            if (data.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Belum ada data karyawan.</td></tr>`;
-                return;
-            }
-
-            data.forEach((emp, index) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td><strong>${emp.employee_id}</strong></td>
-                    <td>${emp.name}</td>
-                    <td>${emp.department}</td>
-                    <td>${emp.role}</td>
-                    <td>${new Date(emp.join_date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                    <td class="actions-cell">
-                        <i class="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                        <i class="fa-solid fa-trash delete-icon" title="Hapus" onclick="deleteEmployee(${emp.id})"></i>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        function updateStats(data) {
-            document.getElementById('total-employees').textContent = data.length;
-            document.getElementById('total-count').textContent = data.length;
-            
-            // Hitung departemen unik
-            const depts = [...new Set(data.map(emp => emp.department))];
-            document.getElementById('total-departments').textContent = depts.length;
-
-            // Update timestamp
-            const now = new Date();
-            document.getElementById('last-updated').textContent = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-        }
-
-        // ==========================================
-        // 4. EVENT LISTENERS & MODAL LOGIC
-        // ==========================================
-
-        const modal = document.getElementById('employeeModal');
-        const form = document.getElementById('employeeForm');
-
-        function openModal() {
-            modal.classList.add('active');
-        }
-
-        function closeModal() {
-            modal.classList.remove('active');
-            form.reset();
-        }
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const newEmployee = {
-                employee_id: document.getElementById('emp_id').value,
-                name: document.getElementById('emp_name').value,
-                department: document.getElementById('emp_dept').value,
-                role: document.getElementById('emp_role').value,
-                join_date: document.getElementById('emp_date').value,
-            };
-
-            await addEmployee(newEmployee);
-        });
-
-        // Inisialisasi awal
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchEmployees();
-        });
-
-    </script>
+    <!-- JAVASCRIPT EKSTERNAL -->
+    <script src="script.js"></script>
 </body>
 </html>
