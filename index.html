@@ -3,14 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRIS Dashboard - Employee Directory</title>
-    <!-- Font Awesome -->
+    <title>HRIS Pro - Complete System</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- CSS Eksternal -->
     <link rel="stylesheet" href="style.css">
-</head> 
+</head>
 <body>
 
     <!-- SIDEBAR -->
@@ -20,20 +17,21 @@
             <span>HRIS Pro</span>
         </div>
         <ul class="sidebar-menu">
-            <li><a href="#"><i class="fa-solid fa-house"></i> Dashboard</a></li>
+            <li><a href="#" onclick="showView('dashboard')" id="menu-dashboard" class="active"><i class="fa-solid fa-house"></i> Dashboard</a></li>
+            
             <li>
-                <a href="#" class="active"><i class="fa-solid fa-user-tie"></i> Karyawan <i class="fa-solid fa-chevron-down" style="margin-left: auto; font-size: 10px;"></i></a>
-                <ul class="submenu open">
-                    <li><a href="#" class="active">Data Karyawan</a></li>
-                    <li><a href="#">Struktur Organisasi</a></li>
-                    <li><a href="#">Kontrak & Dokumen</a></li>
+                <a href="#" onclick="toggleSubmenu(event)" id="menu-karyawan"><i class="fa-solid fa-user-tie"></i> Karyawan <i class="fa-solid fa-chevron-down" style="margin-left: auto; font-size: 10px;"></i></a>
+                <ul class="submenu open" id="submenu-karyawan">
+                    <li><a href="#" onclick="showView('employees')" id="menu-employees">Data Karyawan</a></li>
+                    <li><a href="#" onclick="showView('org')" id="menu-org">Struktur Organisasi</a></li>
                 </ul>
             </li>
-            <li><a href="#"><i class="fa-solid fa-calendar-check"></i> Absensi & Cuti</a></li>
-            <li><a href="#"><i class="fa-solid fa-money-bill-wave"></i> Payroll</a></li>
-            <li><a href="#"><i class="fa-solid fa-bullhorn"></i> Rekrutmen</a></li>
-            <li><a href="#"><i class="fa-solid fa-chart-line"></i> Kinerja</a></li>
-            <li><a href="#"><i class="fa-solid fa-gear"></i> Pengaturan</a></li>
+            
+            <li><a href="#" onclick="showView('attendance')" id="menu-attendance"><i class="fa-solid fa-calendar-check"></i> Absensi & Cuti</a></li>
+            <li><a href="#" onclick="showView('payroll')" id="menu-payroll"><i class="fa-solid fa-money-bill-wave"></i> Payroll</a></li>
+            <li><a href="#" onclick="showView('recruitment')" id="menu-recruitment"><i class="fa-solid fa-bullhorn"></i> Rekrutmen</a></li>
+            <li><a href="#" onclick="showView('performance')" id="menu-performance"><i class="fa-solid fa-chart-line"></i> Kinerja</a></li>
+            <li><a href="#" onclick="showView('settings')" id="menu-settings"><i class="fa-solid fa-gear"></i> Pengaturan</a></li>
         </ul>
     </aside>
 
@@ -43,7 +41,7 @@
         <header class="topbar">
             <div class="search-bar">
                 <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
-                <input type="text" id="search-input" placeholder="Cari karyawan, departemen...">
+                <input type="text" id="global-search" placeholder="Cari data...">
             </div>
             <div class="topbar-right">
                 <i class="fa-solid fa-bell"></i>
@@ -55,118 +53,204 @@
             </div>
         </header>
 
-        <!-- CONTENT AREA -->
-        <main class="content-area">
-            <div class="page-header">
-                <h1>Data Karyawan</h1>
-                <div class="header-actions">
-                    <i class="fa-solid fa-download" title="Export Data" onclick="exportToCSV()"></i>
-                    <i class="fa-solid fa-print" title="Print" onclick="window.print()"></i>
+        <div class="content-area">
+            
+            <!-- ================= VIEW: DASHBOARD ================= -->
+            <div id="view-dashboard" class="view-section active">
+                <div class="page-header">
+                    <h1>Dashboard</h1>
                 </div>
-            </div>
-
-            <!-- Info Card -->
-            <div class="info-card">
-                <div class="info-group">
-                    <label>Total Karyawan</label>
-                    <span id="total-employees">0</span>
-                </div>
-                <div class="info-group">
-                    <label>Departemen</label>
-                    <span id="total-departments">0</span>
-                </div>
-                <div class="info-group">
-                    <label>Status Aktif</label>
-                    <span style="color: var(--primary-green);">100%</span>
-                </div>
-                <div class="info-group">
-                    <label>Update Terakhir</label>
-                    <span id="last-updated">-</span>
-                </div>
-            </div>
-
-            <!-- Table Card -->
-            <div class="table-card">
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>ID Karyawan</th>
-                                <th>Nama Lengkap</th>
-                                <th>Departemen</th>
-                                <th>Jabatan</th>
-                                <th>Tanggal Masuk</th>
-                                <th>Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="employee-table-body">
-                            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Footer Actions -->
-                <div class="table-footer">
-                    <div class="footer-left">
-                        <button class="btn btn-outline" onclick="openModal()"><i class="fa-solid fa-plus"></i> Tambah Karyawan</button>
-                        <button class="btn btn-outline" onclick="exportToCSV()"><i class="fa-solid fa-file-export"></i> Export CSV</button>
+                <div class="info-card">
+                    <div class="info-group">
+                        <label>Total Karyawan</label>
+                        <span id="dash-total-emp">0</span>
                     </div>
-                    <div class="footer-right">
-                        <div>
-                            <div class="total-text">Total Data</div>
-                            <div class="total-amount" id="total-count">0</div>
+                    <div class="info-group">
+                        <label>Pelamar Aktif</label>
+                        <span id="dash-total-applicant">0</span>
+                    </div>
+                    <div class="info-group">
+                        <label>Total Payroll Bulan Ini</label>
+                        <span id="dash-total-payroll">Rp 0</span>
+                    </div>
+                    <div class="info-group">
+                        <label>Absensi Hari Ini</label>
+                        <span id="dash-total-attendance">0</span>
+                    </div>
+                </div>
+                <div class="table-card">
+                    <h3>Selamat Datang di HRIS Pro</h3>
+                    <p style="color: var(--text-muted); margin-top: 10px;">Silakan pilih menu di sidebar untuk mengelola data karyawan, absensi, payroll, rekrutmen, dan kinerja.</p>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: EMPLOYEES ================= -->
+            <div id="view-employees" class="view-section">
+                <div class="page-header">
+                    <h1>Data Karyawan</h1>
+                    <div class="header-actions">
+                        <i class="fa-solid fa-download" title="Export Data" onclick="exportToCSV('employees')"></i>
+                        <i class="fa-solid fa-print" title="Print" onclick="window.print()"></i>
+                    </div>
+                </div>
+                <div class="table-card">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th><th>ID Karyawan</th><th>Nama Lengkap</th><th>Departemen</th><th>Jabatan</th><th>Tanggal Masuk</th><th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="employee-table-body">
+                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <div class="footer-left">
+                            <button class="btn btn-outline" onclick="openModal('employee')"><i class="fa-solid fa-plus"></i> Tambah Karyawan</button>
                         </div>
-                        <button class="btn btn-danger-outline" onclick="deleteAll()"><i class="fa-solid fa-trash"></i> Hapus Semua</button>
-                        <button class="btn btn-primary" onclick="openModal()"><i class="fa-solid fa-check"></i> Simpan & Tambah</button>
+                        <div class="footer-right">
+                            <div><div class="total-text">Total Data</div><div class="total-amount" id="total-count-emp">0</div></div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </main>
+
+            <!-- ================= VIEW: ABSENSI ================= -->
+            <div id="view-attendance" class="view-section">
+                <div class="page-header">
+                    <h1>Absensi & Cuti</h1>
+                </div>
+                <div class="table-card">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr><th>#</th><th>Nama Karyawan</th><th>Tanggal</th><th>Status</th><th>Check In</th><th>Check Out</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="attendance-table-body">
+                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <div class="footer-left">
+                            <button class="btn btn-outline" onclick="openModal('attendance')"><i class="fa-solid fa-plus"></i> Tambah Absensi</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: PAYROLL ================= -->
+            <div id="view-payroll" class="view-section">
+                <div class="page-header">
+                    <h1>Payroll</h1>
+                </div>
+                <div class="table-card">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr><th>#</th><th>Nama Karyawan</th><th>Bulan</th><th>Gaji Pokok</th><th>Tunjangan</th><th>Potongan</th><th>Gaji Bersih</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="payroll-table-body">
+                                <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <div class="footer-left">
+                            <button class="btn btn-outline" onclick="openModal('payroll')"><i class="fa-solid fa-plus"></i> Tambah Payroll</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: REKRUTMEN ================= -->
+            <div id="view-recruitment" class="view-section">
+                <div class="page-header">
+                    <h1>Rekrutmen</h1>
+                </div>
+                <div class="table-card">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr><th>#</th><th>Nama Pelamar</th><th>Posisi</th><th>Status</th><th>Tanggal Apply</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="recruitment-table-body">
+                                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <div class="footer-left">
+                            <button class="btn btn-outline" onclick="openModal('recruitment')"><i class="fa-solid fa-plus"></i> Tambah Pelamar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: KINERJA ================= -->
+            <div id="view-performance" class="view-section">
+                <div class="page-header">
+                    <h1>Kinerja</h1>
+                </div>
+                <div class="table-card">
+                    <div class="table-responsive">
+                        <table>
+                            <thead>
+                                <tr><th>#</th><th>Nama Karyawan</th><th>Periode</th><th>Skor</th><th>Catatan</th><th>Aksi</th></tr>
+                            </thead>
+                            <tbody id="performance-table-body">
+                                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <div class="footer-left">
+                            <button class="btn btn-outline" onclick="openModal('performance')"><i class="fa-solid fa-plus"></i> Tambah Penilaian</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: PENGATURAN ================= -->
+            <div id="view-settings" class="view-section">
+                <div class="page-header"><h1>Pengaturan</h1></div>
+                <div class="table-card">
+                    <h3>Pengaturan Sistem</h3>
+                    <p style="color: var(--text-muted); margin-top: 10px;">Halaman ini dapat digunakan untuk mengatur profil perusahaan, kebijakan cuti, dan konfigurasi payroll.</p>
+                </div>
+            </div>
+
+            <!-- ================= VIEW: STRUKTUR ORGANISASI ================= -->
+            <div id="view-org" class="view-section">
+                <div class="page-header"><h1>Struktur Organisasi</h1></div>
+                <div class="table-card">
+                    <p style="color: var(--text-muted);">Fitur bagan organisasi akan ditampilkan di sini.</p>
+                </div>
+            </div>
+
+        </div>
     </div>
 
-    <!-- MODAL TAMBAH/EDIT KARYAWAN -->
-    <div class="modal" id="employeeModal">
+    <!-- MODAL UNIVERSAL -->
+    <div class="modal" id="universalModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="modal-title">Tambah Karyawan Baru</h2>
+                <h2 id="modal-title">Form</h2>
                 <i class="fa-solid fa-times" onclick="closeModal()"></i>
             </div>
-            <form id="employeeForm">
-                <!-- Hidden ID untuk Edit -->
-                <input type="hidden" id="emp_db_id">
-                
-                <div class="form-group">
-                    <label>ID Karyawan</label>
-                    <input type="text" id="emp_id" required placeholder="Contoh: EMP-001">
-                </div>
-                <div class="form-group">
-                    <label>Nama Lengkap</label>
-                    <input type="text" id="emp_name" required placeholder="Nama Karyawan">
-                </div>
-                <div class="form-group">
-                    <label>Departemen</label>
-                    <input type="text" id="emp_dept" required placeholder="Contoh: IT, HR, Finance">
-                </div>
-                <div class="form-group">
-                    <label>Jabatan</label>
-                    <input type="text" id="emp_role" required placeholder="Contoh: Software Engineer">
-                </div>
-                <div class="form-group">
-                    <label>Tanggal Masuk</label>
-                    <input type="date" id="emp_date" required>
-                </div>
+            <form id="universalForm">
+                <div id="dynamic-form-fields"></div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">Batal</button>
-                    <button type="submit" class="btn btn-primary" id="modal-submit-btn">Simpan Karyawan</button>
+                    <button type="submit" class="btn btn-primary" id="modal-submit-btn">Simpan</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- SUPABASE JS CLIENT -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- JAVASCRIPT EKSTERNAL -->
     <script src="script.js"></script>
 </body>
 </html>
