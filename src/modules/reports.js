@@ -340,7 +340,7 @@ export function updateReportScopeNote(){
   if(role === 'admin' || role === 'hr'){
     note.textContent = 'HR/Admin: dapat memilih satu karyawan atau seluruh karyawan. Data dibatasi oleh RLS di Supabase.';
   } else if(role === 'manager'){
-    note.textContent = 'Manager: hanya dapat memilih dirinya bukan sebagai target laporan; pilihan karyawan dibatasi pada departemennya sendiri. Data Payroll perusahaan tidak dibuka oleh RLS untuk Manager.';
+    note.textContent = 'Manager: dapat memilih seluruh tim atau satu karyawan dalam departemennya sendiri. Payroll perusahaan tidak tersedia untuk Manager.';
   } else {
     note.textContent = 'Karyawan: laporan otomatis hanya untuk data Anda sendiri.';
   }
@@ -384,7 +384,7 @@ export function downloadCurrentReportCSV(){
     currentHeaders.map(esc).join(','),
     ...currentRows.map(row => currentHeaders.map((_,i) => esc(row[i] ?? '')).join(','))
   ];
-  const blob = new Blob(['\\uFEFF' + lines.join('\\r\\n')], {type:'text/csv;charset=utf-8;'});
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const stamp = new Date().toISOString().slice(0,10);
@@ -395,6 +395,57 @@ export function downloadCurrentReportCSV(){
   a.remove();
   URL.revokeObjectURL(url);
   showToast('CSV berhasil diunduh.');
+}
+
+export function downloadCurrentReportPDF(){
+  if(!currentHeaders.length){
+    showToast('Tampilkan laporan terlebih dahulu.', true);
+    return;
+  }
+
+  const jsPDF = window.jspdf?.jsPDF;
+  if(!jsPDF){
+    showToast('Library PDF belum termuat. Gunakan PDF / Cetak.', true);
+    window.print();
+    return;
+  }
+
+  const doc = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+  const title = 'My HRIS — ' + (REPORT_META[currentReportKey]?.title || currentReportKey);
+  doc.setFontSize(14);
+  doc.text(title, 32, 32);
+  doc.setFontSize(8);
+  doc.text('Dibuat: ' + new Date().toLocaleString('id-ID'), 32, 46);
+
+  const body = currentRows.map(row => currentHeaders.map((_,i) => {
+    const value = row[i] ?? '';
+    return typeof value === 'number' ? value.toLocaleString('id-ID') : String(value);
+  }));
+
+  if(typeof doc.autoTable !== 'function'){
+    showToast('Plugin tabel PDF belum termuat. Gunakan PDF / Cetak.', true);
+    window.print();
+    return;
+  }
+
+  doc.autoTable({
+    head: [currentHeaders],
+    body,
+    startY: 58,
+    styles: {fontSize: 6.5, cellPadding: 3, overflow: 'linebreak'},
+    headStyles: {fontSize: 7},
+    margin: {left: 24, right: 24, top: 24, bottom: 24},
+    didDrawPage: function(){
+      const pageCount = doc.internal.getNumberOfPages();
+      const page = doc.internal.getCurrentPageInfo().pageNumber;
+      doc.setFontSize(7);
+      doc.text('Halaman ' + page + ' / ' + pageCount, 760, 560);
+    }
+  });
+
+  const stamp = new Date().toISOString().slice(0,10);
+  doc.save('MyHRIS_' + currentReportKey + '_' + stamp + '.pdf');
+  showToast('PDF berhasil diunduh.');
 }
 
 export async function exportCurrentReportExcel(){
