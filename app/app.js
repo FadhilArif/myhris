@@ -65,25 +65,43 @@ function openModal(html){
 }
 function closeModal(){ el('modal-root').innerHTML = ''; }
 
+// Flag global untuk cegah spam logout saat banyak query 401 bersamaan
+let _sessionExpiring = false;
+
 async function sbAll(table, opts={}){
   let q = sb.from(table).select(opts.select || '*');
   if(opts.eq) for(const k in opts.eq) q = q.eq(k, opts.eq[k]);
   if(opts.order) q = q.order(opts.order.col, {ascending: opts.order.asc !== false});
-  
+
   const { data, error } = await q;
-  
-  if(error){ 
-    console.error('Supabase Error:', error);
-    
-    // Jika error 401 (Unauthorized) atau JWT expired, paksa logout
-    if (error.code === '401' || error.message.includes('JWT') || error.message.includes('not authenticated')) {
-      showToast('Sesi Anda telah berakhir. Silakan login kembali.', true);
-      await doLogout();
+
+  if(error){
+    console.warn(`[sbAll] ${table}:`, error.code, error.message);
+
+    // 401 — token expired. Handle sekali saja, tidak spam.
+    if(error.code === '401' || (error.message||'').toLowerCase().includes('jwt')){
+      if(!_sessionExpiring){
+        _sessionExpiring = true;
+        showToast('Sesi berakhir. Silakan login kembali.', true);
+        try { await sb.auth.signOut(); } catch(e){}
+        CURRENT_USER = null; PROFILE = null; ME = null;
+        _bootedUserId = null;
+        el('app').style.display = 'none';
+        el('login-screen').style.display = 'flex';
+        setTimeout(()=>{ _sessionExpiring = false; }, 3000);
+      }
       return [];
     }
-    
-    showToast('Gagal memuat data: '+error.message, true); 
-    return []; 
+
+    // 429 — rate limit. Diam saja, jangan spam.
+    if(error.code === '429' || (error.message||'').toLowerCase().includes('rate limit')){
+      console.warn('[sbAll] Rate limited, backing off...');
+      return [];
+    }
+
+    // Error lain — tampilkan toast (kecuali saat booting)
+    if(!_booting) showToast('Gagal memuat data: '+error.message, true);
+    return [];
   }
   return data || [];
 }
@@ -120,84 +138,137 @@ async function doSignup(){
   const password = el('login-password').value;
   const name = el('signup-name').value.trim();
   if(!email || !password || !name){ showLoginError('Lengkapi email, kata sandi, dan nama.'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password });
-  if(error){ showLoginError(error.message); return; }
-  if(data.user){
-    const { error: insertError } = await sb.from('profiles').insert({ id: data.user.id, full_name: name, role: 'employee' });
-    if (insertError) {
-      showLoginError("Gagal membuat profil: " + insertError.message);
-      return;
-    }
+  try {
+    const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name: name } } });
+    if(error){ showLoginError(error.message); return; }
+    // Profile akan dibuat otomatis oleh trigger handle_new_user()
     showToast('Akun dibuat. Silakan masuk.');
     toggleSignup();
+  } catch(e){
+    showLoginError('Terjadi kesalahan: ' + e.message);
   }
 }
 function showLoginError(msg){
   const box = el('login-error');
+  if(!box) return;
   box.textContent = msg;
   box.style.display = 'block';
 }
+
+// ------------------- LOGIN -------------------
 async function doLogin(){
   const email = el('login-email').value.trim();
   const password = el('login-password').value;
+  const errBox = el('login-error');
+  if(errBox) errBox.style.display = 'none';
   if(!email || !password){ showLoginError('Isi email dan kata sandi.'); return; }
-  // Disable tombol biar tidak double-submit
+
   const btn = document.querySelector('button[onclick="doLogin()"]');
   if(btn){ btn.disabled = true; btn.textContent = 'Memuat…'; }
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if(btn){ btn.disabled = false; btn.textContent = 'Masuk'; }
-  if(error){ showLoginError(error.message); return; }
-  if(!data || !data.user){ showLoginError('Login gagal, coba lagi.'); return; }
-  // Lewat safeBoot agar tidak bentrok dengan event SIGNED_IN dari onAuthStateChange
-  await safeBoot(data.user);
+
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+
+    if(error){
+      if(error.status === 429 || (error.message||'').toLowerCase().includes('rate limit')){
+        showLoginError('Terlalu banyak percobaan. Tunggu 1-2 menit lalu coba lagi.');
+      } else {
+        showLoginError(error.message);
+      }
+      return;
+    }
+    if(!data || !data.user){ showLoginError('Login gagal, coba lagi.'); return; }
+
+    // Reset boot state → user ini akan di-boot dengan bersih
+    _bootedUserId = null;
+    await safeBoot(data.user);
+  } catch(e){
+    console.error('Login exception:', e);
+    showLoginError('Terjadi kesalahan. Coba lagi.');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Masuk'; }
+  }
 }
+
+// ------------------- LOGOUT -------------------
 async function doLogout(){
-  await sb.auth.signOut();
+  try { await sb.auth.signOut(); } catch(e){}
   CURRENT_USER = null; PROFILE = null; ME = null;
-  APP_BOOTED = false;
+  _bootedUserId = null;
+  _booting = false;
   el('app').style.display = 'none';
   el('login-screen').style.display = 'flex';
   if(el('login-password')) el('login-password').value = '';
   if(el('login-error')) el('login-error').style.display = 'none';
 }
+
+// ------------------- BOOT AFTER LOGIN -------------------
 async function bootAfterLogin(user){
+  if(!user || !user.id) return;
   CURRENT_USER = user;
-  let { data: profile, error: profileError } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  
-  if(!profile){
-    const { data: created, error: insertError } = await sb.from('profiles')
-      .insert({ id: user.id, full_name: user.email, role: 'employee' })
-      .select()
-      .maybeSingle();
-      
-    if (insertError) {
-      console.error("Gagal membuat profil:", insertError);
-      alert("Gagal membuat profil. Pastikan policy RLS sudah diperbaiki. Error: " + insertError.message);
-      return;
+
+  // --- Fetch profile (tahan error) ---
+  let profile = null;
+  try {
+    const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+    if(error){
+      console.warn('[boot] profile fetch:', error.code, error.message);
+      if(error.code === '401' || (error.message||'').toLowerCase().includes('jwt')){
+        await doLogout();
+        return;
+      }
+    } else {
+      profile = data;
     }
-    profile = created;
+  } catch(e){ console.warn('[boot] profile fetch exception:', e); }
+
+  // --- Kalau belum ada, coba insert sekali (fallback in-memory kalau gagal) ---
+  if(!profile){
+    try {
+      const { data, error } = await sb.from('profiles')
+        .insert({ id: user.id, full_name: user.email, role: 'employee' })
+        .select().maybeSingle();
+      if(error){
+        console.warn('[boot] profile insert blocked:', error.message);
+        // Fallback: user tetap bisa pakai app sebagai employee (in-memory)
+        profile = { id: user.id, full_name: user.email, role: 'employee', employee_id: null };
+      } else {
+        profile = data;
+      }
+    } catch(e){
+      profile = { id: user.id, full_name: user.email, role: 'employee', employee_id: null };
+    }
   }
 
   PROFILE = profile;
-  
-  if(PROFILE && PROFILE.employee_id){
-    const { data: emp } = await sb.from('employees').select('*, departments(name), positions(name)').eq('id', PROFILE.employee_id).maybeSingle();
-    ME = emp;
+  ME = null;
+
+  // --- Ambil employee row (kalau ada) ---
+  if(PROFILE.employee_id){
+    try {
+      const { data } = await sb.from('employees')
+        .select('*, departments(name), positions(name)')
+        .eq('id', PROFILE.employee_id).maybeSingle();
+      ME = data || null;
+    } catch(e){ /* ignore */ }
   }
-  
+
+  // --- Tampilkan aplikasi ---
   el('login-screen').style.display = 'none';
   el('app').style.display = 'block';
   el('user-name').textContent = PROFILE.full_name;
   el('user-role').textContent = ({admin:'Administrator', hr:'Staf HR', manager:'Manajer', employee:'Karyawan'})[PROFILE.role] || PROFILE.role;
   el('user-avatar').textContent = (PROFILE.full_name||'?').slice(0,1).toUpperCase();
-  
-  await preloadMaster();
+
+  // --- Preload master data (jangan crash kalau gagal) ---
+  try { await preloadMaster(); } catch(e){ console.warn('preloadMaster failed:', e); }
+
   buildNav();
-  
   const startRoute = location.hash.replace('#','') || 'dashboard';
   navigate(startRoute);
   el('topbar-date').textContent = new Date().toLocaleDateString('id-ID',{weekday:'long', day:'numeric', month:'long', year:'numeric'});
 }
+
 async function preloadMaster(){
   CACHE.departments = await sbAll('departments', {order:{col:'name'}});
   CACHE.positions = await sbAll('positions', {order:{col:'name'}});
@@ -206,25 +277,25 @@ async function preloadMaster(){
 }
 
 // =====================================================================
-// INISIALISASI AUTH — SATU jalur bersih (anti-loop)
-// PENTING: hanya ada SATU blok init dan SATU onAuthStateChange listener
-// di seluruh file ini. Jangan tempel blok init auth lain di bawah/atas
-// ini — itulah yang dulu menyebabkan auth loop & Supabase rate limit.
+// INISIALISASI AUTH — anti-loop
 // =====================================================================
-
-let _booting = false;              // Lock: cegah bootAfterLogin berjalan dobel bersamaan
-let _lastBootAt = 0;               // Throttle: cegah proses boot < 5 detik sekali
-const MIN_BOOT_GAP_MS = 5000;
+let _booting = false;
+let _bootedUserId = null;
+let _lastBootAt = 0;
+const MIN_BOOT_GAP_MS = 3000;
 
 async function safeBoot(user){
+  if(!user || !user.id) return;
+  // Skip kalau user sama sudah berhasil boot
+  if(_bootedUserId === user.id && PROFILE) return;
   if(_booting) return;
-  if(PROFILE && CURRENT_USER && CURRENT_USER.id === user.id) return; // sudah login, tidak perlu boot ulang
-  const now = Date.now();
-  if(now - _lastBootAt < MIN_BOOT_GAP_MS) return;
+  if(Date.now() - _lastBootAt < MIN_BOOT_GAP_MS) return;
+
   _booting = true;
-  _lastBootAt = now;
+  _lastBootAt = Date.now();
   try {
     await bootAfterLogin(user);
+    if(PROFILE) _bootedUserId = user.id;
   } catch(e){
     console.error('Boot error:', e);
   } finally {
@@ -232,29 +303,42 @@ async function safeBoot(user){
   }
 }
 
-// 1. Cek sesi awal — hanya sekali, saat script dimuat
+// 1. Cek sesi awal — validasi token dulu sebelum boot
 (async () => {
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (session && session.user) await safeBoot(session.user);
+    if(!session || !session.user) return;
+
+    // Validasi token: getSession() tidak cek expired, getUser() iya
+    const { data: userData, error: userErr } = await sb.auth.getUser();
+    if(userErr || !userData || !userData.user){
+      console.warn('Stale session, cleaning...');
+      try { await sb.auth.signOut(); } catch(e){}
+      return;
+    }
+    await safeBoot(userData.user);
   } catch(e){ console.error('Init error:', e); }
 })();
 
-// 2. SATU-SATUNYA listener event auth (dengan throttle bawaan safeBoot)
+// 2. Listener event auth — hanya SIGNS_IN & SIGNS_OUT
 sb.auth.onAuthStateChange(async (event, session) => {
-  if (event === 'SIGNED_IN' && session && session.user) {
+  if(event === 'SIGNED_IN' && session && session.user){
     await safeBoot(session.user);
   }
-  else if (event === 'SIGNED_OUT') {
+  else if(event === 'SIGNED_OUT'){
     CURRENT_USER = null; PROFILE = null; ME = null;
+    _bootedUserId = null;
     el('app').style.display = 'none';
     el('login-screen').style.display = 'flex';
   }
-  else if (event === 'TOKEN_REFRESHED' && session) {
-    CURRENT_USER = session.user; // cukup update, tidak perlu boot ulang
+  else if(event === 'TOKEN_REFRESHED' && session){
+    CURRENT_USER = session.user;
   }
-  // Event lain (INITIAL_SESSION, USER_UPDATED, dll) sengaja diabaikan.
 });
+
+// =====================================================================
+// NAVIGASI (tidak ada perubahan — biarkan seperti semula)
+// =====================================================================
 
 // =====================================================================
 // NAVIGASI
