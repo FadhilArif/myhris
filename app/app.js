@@ -935,7 +935,14 @@ function updateSidebarAvatar(){
     avatarEl.innerHTML = initial;
   }
 }
-
+// Buka profil sendiri — dipanggil saat user klik avatar di sidebar
+function openMyProfile(){
+  if(!ME || !ME.id){
+    showToast('Akun Anda belum ditautkan ke data karyawan. Hubungi HR.', true);
+    return;
+  }
+  navigate('employee-detail/' + ME.id);
+}
 // =====================================================================
 // MODUL: ABSENSI (VIEW HR)
 // =====================================================================
