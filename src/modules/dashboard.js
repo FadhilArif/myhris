@@ -41,7 +41,7 @@ export async function renderDashboard(){
           }).join('') : '<p class="empty-state">Tidak ada pengajuan.</p>'}
         </div>
       </div>`;
- else if(isManager()){
+  } else if(isManager()){
     const [allEmps, allAtt, allLeave] = await Promise.all([
       sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}}),
       sbAll('attendance', {eq:{work_date:new Date().toISOString().slice(0,10)}}),
