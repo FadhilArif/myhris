@@ -5,6 +5,67 @@ let CURRENT_USER = null;   // auth.users row
 let PROFILE = null;        // profiles row (role, employee_id)
 let ME = null;             // employees row milik user login (jika ada)
 let CACHE = { departments: [], positions: [], leaveTypes: [], employees: [] };
+// =====================================================================
+// KONFIGURASI PAJAK & BPJS (2024)
+// =====================================================================
+
+// PTKP 2024 — Penghasilan Tidak Kena Pajak setahun
+const PTKP_2024 = {
+  'TK/0': 54_000_000, 'TK/1': 58_500_000, 'TK/2': 63_000_000, 'TK/3': 67_500_000,
+  'K/0':  58_500_000, 'K/1':  63_000_000, 'K/2':  67_500_000, 'K/3':  72_000_000
+};
+
+// Tarif progresif PPh 21 (UU HPP)
+const PPH21_BRACKETS = [
+  { max: 60_000_000,     rate: 0.05 },
+  { max: 250_000_000,    rate: 0.15 },
+  { max: 500_000_000,    rate: 0.25 },
+  { max: 5_000_000_000,  rate: 0.30 },
+  { max: Infinity,       rate: 0.35 }
+];
+
+// Batas atas untuk iuran BPJS (tahun 2024)
+const BPJS_CAP_KESEHATAN = 12_000_000;
+const BPJS_CAP_JP        = 10_042_300;
+
+// =====================================================================
+// FUNGSI HITUNG PPh 21
+// =====================================================================
+function hitungPPh21Setahun(brutoSetahun, jhtSetahun, jpSetahun, ptkpKey){
+  const ptkp = PTKP_2024[ptkpKey] || PTKP_2024['TK/0'];
+
+  // Biaya jabatan: 5% dari bruto, max Rp 500.000/bulan (Rp 6 juta/tahun)
+  const biayaJabatan = Math.min(brutoSetahun * 0.05, 6_000_000);
+
+  // Pengurang: biaya jabatan + iuran pensiun (JHT + JP) yang dibayar karyawan
+  const pengurang = biayaJabatan + jhtSetahun + jpSetahun;
+
+  // PKP = Bruto - Pengurang - PTKP, dibulatkan ke bawah ke ribuan
+  let pkp = brutoSetahun - pengurang - ptkp;
+  pkp = Math.floor(Math.max(0, pkp) / 1000) * 1000;
+  if(pkp <= 0) return 0;
+
+  // Hitung dengan tarif progresif berlapis
+  let pajak = 0, sisa = pkp, prev = 0;
+  for(const b of PPH21_BRACKETS){
+    const lapisan = Math.min(sisa, b.max - prev);
+    if(lapisan <= 0) break;
+    pajak += lapisan * b.rate;
+    sisa -= lapisan;
+    prev = b.max;
+    if(sisa <= 0) break;
+  }
+  return pajak;
+}
+
+function hitungPPh21Bulanan(gajiPokok, tunjanganBulanan, ptkpKey){
+  const brutoBulanan = gajiPokok + tunjanganBulanan;
+  const brutoSetahun = brutoBulanan * 12;
+  const jhtSetahun = Math.min(gajiPokok, BPJS_CAP_JP) * 0.02 * 12;
+  const jpSetahun  = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01 * 12;
+  const setahun = hitungPPh21Setahun(brutoSetahun, jhtSetahun, jpSetahun, ptkpKey);
+  return Math.round(setahun / 12);
+}
 
 const ICONS = {
   dashboard:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
@@ -709,6 +770,16 @@ function openEmployeeForm(emp){
     <div class="field"><label>Gaji Pokok</label>
       <input id="f-salary" type="text" oninput="formatNumberInput(this)" value="${emp ? parseInt(emp.basic_salary).toLocaleString('id-ID') : '0'}">
     </div>
+        <div class="field"><label>Status PTKP</label>
+      <select id="f-ptkp">
+        ${['TK/0','TK/1','TK/2','TK/3','K/0','K/1','K/2','K/3'].map(p=>
+          `<option value="${p}" ${emp && emp.ptkp_status===p ? 'selected' : (p==='TK/0' && !emp ? 'selected' : '')}>${p}</option>`
+        ).join('')}
+      </select>
+      <small style="color:var(--text-muted);font-size:11px;display:block;margin-top:3px;">
+        TK/0 = Lajang, K/1 = Kawin 1 anak, dst. Mempengaruhi PPh 21.
+      </small>
+    </div>
     <div class="field"><label>Status</label><select id="f-status">
       ${['active','probation','resigned','terminated'].map(s=>`<option value="${s}" ${emp&&emp.employment_status===s?'selected':''}>${s}</option>`).join('')}
     </select></div>
@@ -1157,27 +1228,75 @@ async function savePayrollRun(){
   showToast('Periode payroll dibuat.'); closeModal(); renderPayroll();
 }
 async function generatePayslips(runId){
-  const [emps, components] = await Promise.all([ sbAll('employees', {eq:{employment_status:'active'}}), sbAll('payroll_components') ]);
-  const earnings = components.filter(c=>c.component_type==='earning');
-  const deductions = components.filter(c=>c.component_type==='deduction');
+  const [emps, components] = await Promise.all([
+    sbAll('employees', {eq:{employment_status:'active'}}),
+    sbAll('payroll_components')
+  ]);
+
+  const earnings = components.filter(c => c.component_type === 'earning');
+  const deductions = components.filter(c => c.component_type === 'deduction');
+
   for(const e of emps){
     const details = [];
-    let totalEarn = Number(e.basic_salary)||0;
-    details.push({ name:'Gaji Pokok', amount: totalEarn, type:'earning' });
-    earnings.filter(x=>x.name!=='Gaji Pokok').forEach(comp=>{
-      const amt = comp.is_percentage ? (e.basic_salary * comp.default_amount/100) : comp.default_amount;
-      details.push({ name: comp.name, amount: amt, type:'earning' }); totalEarn += amt;
+    const gajiPokok = Number(e.basic_salary) || 0;
+    
+    // 1. Gaji Pokok
+    let totalEarn = gajiPokok;
+    details.push({ name:'Gaji Pokok', amount: gajiPokok, type:'earning' });
+
+    // 2. Tunjangan (fixed / percentage)
+    let totalTunjangan = 0;
+    earnings.filter(x => x.name !== 'Gaji Pokok').forEach(comp => {
+      const amt = comp.is_percentage 
+        ? (gajiPokok * comp.default_amount / 100) 
+        : Number(comp.default_amount);
+      details.push({ name: comp.name, amount: amt, type:'earning' });
+      totalEarn += amt;
+      totalTunjangan += amt;
     });
+
+    // 3. Hitung BPJS Karyawan (yang dipotong dari gaji)
+    const bpjsKesehatan = Math.min(gajiPokok, BPJS_CAP_KESEHATAN) * 0.01;  // 1%
+    const bpjsJHT       = gajiPokok * 0.02;                                 // 2%
+    const bpjsJP        = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01;          // 1%
+
+    // 4. Hitung PPh 21 Progresif
+    const ptkpKey = e.ptkp_status || 'TK/0';
+    const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan, ptkpKey);
+
+    // 5. Susun potongan
     let totalDed = 0;
-    deductions.forEach(comp=>{
-      const amt = comp.is_percentage ? (e.basic_salary * comp.default_amount/100) : comp.default_amount;
-      details.push({ name: comp.name, amount: amt, type:'deduction' }); totalDed += amt;
+    deductions.forEach(comp => {
+      let amt = 0;
+      switch(comp.calc_type){
+        case 'bpjs_kesehatan': amt = bpjsKesehatan; break;
+        case 'bpjs_jht':       amt = bpjsJHT; break;
+        case 'bpjs_jp':        amt = bpjsJP; break;
+        case 'pph21':          amt = pph21; break;
+        case 'percentage':     amt = gajiPokok * comp.default_amount / 100; break;
+        default:               amt = Number(comp.default_amount) || 0;
+      }
+      amt = Math.round(amt);
+      details.push({ name: comp.name, amount: amt, type:'deduction' });
+      totalDed += amt;
     });
-    const payload = { payroll_run_id: runId, employee_id: e.id, basic_salary: e.basic_salary||0, total_earnings: totalEarn, total_deductions: totalDed, net_salary: totalEarn-totalDed, details };
+
+    // 6. Simpan payslip
+    const payload = {
+      payroll_run_id: runId,
+      employee_id: e.id,
+      basic_salary: gajiPokok,
+      total_earnings: Math.round(totalEarn),
+      total_deductions: Math.round(totalDed),
+      net_salary: Math.round(totalEarn - totalDed),
+      details
+    };
     await sb.from('payslips').upsert(payload, { onConflict: 'payroll_run_id,employee_id' });
   }
+
   await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
-  showToast('Slip gaji berhasil dibuat untuk semua karyawan aktif.'); renderPayroll();
+  showToast(`Slip gaji berhasil dibuat untuk ${emps.length} karyawan.`);
+  renderPayroll();
 }
 async function viewPayslips(runId, month, year){
   const [slips, emps] = await Promise.all([ sbAll('payslips', {eq:{payroll_run_id: runId}}), sbAll('employees') ]);
