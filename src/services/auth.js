@@ -165,5 +165,5 @@ export async function preloadMaster(){
   CACHE.positions = await sbAll('positions', {order:{col:'name'}});
   CACHE.leaveTypes = await sbAll('leave_types', {order:{col:'name'}});
   CACHE.shiftList = await sbAll('work_shifts', {order:{col:'start_time'}});
-  if(isHR()) CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
+  if(isHR() || state.profile?.role === 'manager') CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
 }
