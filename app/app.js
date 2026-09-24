@@ -1640,20 +1640,6 @@ async function generatePayslips(runId){
     btns.forEach(b => b.disabled = false);
   }
 }
-
-    // Update status payroll_runs
-    await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
-
-    showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`);
-    renderPayroll();
-
-  } catch(e){
-    console.error('generatePayslips error:', e);
-    showToast('Terjadi kesalahan: ' + e.message, true);
-  } finally {
-    btns.forEach(b => b.disabled = false);
-  }
-}
 async function viewPayslips(runId, month, year){
   const [slips, emps] = await Promise.all([ sbAll('payslips', {eq:{payroll_run_id: runId}}), sbAll('employees') ]);
   el('payslip-area').innerHTML = `<h3>Slip Gaji Periode ${String(month).padStart(2,'0')}/${year}</h3>
