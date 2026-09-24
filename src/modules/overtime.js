@@ -26,7 +26,7 @@ export async function renderOvertime(){
       return `<tr><td><b>${escapeHtml(e?e.full_name:'-')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e?.departments?.name||'')}</span></td>
         <td>${fmtDate(r.overtime_date)}</td><td>${start} – ${end}</td><td>${r.hours} jam</td>
         <td style="max-width:180px;font-size:12.5px;">${escapeHtml(r.reason||'-')}</td><td>${r.amount?fmtMoney(r.amount):'-'}</td><td>${statusBadge(r.status)}</td>
-        <td style="text-align:right;">${r.status==='pending'&&isHR()?`<button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button> <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`:''}</td></tr>`;
+        <td style="text-align:right;">${r.status==='pending'&&(isHR()||isManager())?`<button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button> <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`:''}</td></tr>`;
     }).join('') || '<tr><td colspan="8" class="empty-state">Belum ada pengajuan.</td></tr>'}</tbody></table></div>`;
 }
 
