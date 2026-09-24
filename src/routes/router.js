@@ -1,6 +1,6 @@
 // src/routes/router.js
 
-import { state } from '../state/store.js';
+import { state, CACHE } from '../state/store.js';
 import { canAccessRoute, isManager } from '../config/permissions.js';
 import { el, showToast } from '../utils/dom.js';
 
@@ -22,7 +22,8 @@ export function canAccessRouteForRecord(base, param){
 
   // Manager diperbolehkan membuka detail anggota dalam lingkup departemennya.
   if(isManager()){
-    return !!(state.me?.department_id && state.me?.id !== param);
+    const target = CACHE.employees.find(e => e.id === param);
+    return !!(target && target.department_id === state.me?.department_id);
   }
 
   return true;
