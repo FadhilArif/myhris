@@ -1,173 +1,169 @@
 // src/main.js
 
-// ============ 1. IMPORT INFRASTRUCTURE ============
+// ============ 1. INFRASTRUCTURE ============
 import { sb } from './lib/supabase.js';
 import { state, CACHE, isHR } from './state/store.js';
-import { el, openModal, closeModal, showToast, escapeHtml, statusBadge, previewPhoto, handleDocFileSelect, clearDocFile } from './utils/dom.js';
-import { fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize, getFileIcon } from './utils/format.js';
+import {
+  el, openModal, closeModal, showToast, escapeHtml, statusBadge, badge,
+  previewPhoto, handleDocFileSelect, clearDocFile,
+  formatFileSize, getFileIcon
+} from './utils/dom.js';
+import {
+  fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize as formatFileSizeUtil,
+  getFileIcon as getFileIconUtil
+} from './utils/format.js';
 import { hitungPPh21Bulanan, hitungPPh21Setahun } from './utils/tax.js';
 import { sbAll, sbAllQuiet } from './services/db.js';
 import { logAudit } from './services/audit.js';
-import { ROLE_LABELS } from './config/constants.js';
+import { preloadMaster } from './services/auth.js';
+import { ROLE_LABELS, STAGES, MOVEMENT_LABELS } from './config/constants.js';
 import { navigate, registerRoute } from './routes/router.js';
 import { buildNav } from './routes/navigation.js';
-import { initAuth, preloadMaster } from './modules/auth.js';
+import * as AuthMod from './modules/auth.js';
 
-// ============ 2. IMPORT MODULES ============
+
+// ============ 2. FEATURE MODULES ============
+import * as DashboardMod from './modules/dashboard.js';
 import * as EmployeesMod from './modules/employees.js';
-// import * as DashboardMod from './modules/dashboard.js';
-// import * as AttendanceMod from './modules/attendance.js';
-// ... dst
+import * as AttendanceMod from './modules/attendance.js';
+import * as LeaveMod from './modules/leave.js';
+import * as ShiftMod from './modules/shifts.js';
+import * as OvertimeMod from './modules/overtime.js';
+import * as PayrollMod from './modules/payroll.js';
+import * as RecruitmentMod from './modules/recruitment.js';
+import * as PerformanceMod from './modules/performance.js';
+import * as OnboardingMod from './modules/onboarding.js';
+import * as TrainingMod from './modules/training.js';
+import * as ClaimsMod from './modules/claims.js';
+import * as DirectoryMod from './modules/directory.js';
+import * as SettingsMod from './modules/settings.js';
+import * as EmployeeDetailMod from './modules/employeeDetail.js';
 
-// ============ 3. GLOBAL BINDING (agar bisa dipanggil dari HTML onclick) ============
+
+// ============ 3. GLOBAL BINDINGS ============
+// Existing HTML uses inline onclick/onchange handlers.
+// Keep those handlers working while the codebase is split into ES modules.
 Object.assign(window, {
-  // Utils
-  el, openModal, closeModal, showToast, escapeHtml, statusBadge,
-  fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize, getFileIcon,
-  previewPhoto, handleDocFileSelect, clearDocFile, logAudit,
-  hitungPPh21Bulanan, hitungPPh21Setahun,
-  sbAll, sbAllQuiet,
-  // State
-  state, CACHE, isHR, ROLE_LABELS,
-  // Routes
-  navigate, buildNav,
-  // Auth
+  // Core
+  sb,
+  state,
+  CACHE,
+  isHR,
+  ROLE_LABELS,
+  STAGES,
+  MOVEMENT_LABELS,
+
+  // Helpers
+  el,
+  openModal,
+  closeModal,
+  showToast,
+  escapeHtml,
+  badge,
+  statusBadge,
+  fmtMoney,
+  fmtDate,
+  fmtDateTime,
+  formatNumberInput,
+  formatFileSize: formatFileSizeUtil || formatFileSize,
+  getFileIcon: getFileIconUtil || getFileIcon,
+  previewPhoto,
+  handleDocFileSelect,
+  clearDocFile,
+
+  // DB / audit / tax
+  sbAll,
+  sbAllQuiet,
+  logAudit,
+  hitungPPh21Bulanan,
+  hitungPPh21Setahun,
+
+  // Routing / navigation
+  navigate,
+  buildNav,
+
+  // Auth bootstrap
   preloadMaster,
-  // Modules (dari EmployeesMod)
-  renderEmployees: EmployeesMod.renderEmployees,
-  openEmployeeForm: EmployeesMod.openEmployeeForm,
-  saveEmployee: EmployeesMod.saveEmployee,
-  applyEmployeeFilters: EmployeesMod.applyEmployeeFilters,
-  updateFilterPositionDropdown: EmployeesMod.updateFilterPositionDropdown,
-  updatePositionDropdown: EmployeesMod.updatePositionDropdown,
-  uploadEmployeePhoto: EmployeesMod.uploadEmployeePhoto
-  // Recruitment
-  renderRecruitment: RecruitmentMod.renderRecruitment,
-  copyCareerPageLink: RecruitmentMod.copyCareerPageLink,
-  closeJobPosting: RecruitmentMod.closeJobPosting,
-  reopenJobPosting: RecruitmentMod.reopenJobPosting,
-  deleteJobPosting: RecruitmentMod.deleteJobPosting,
-openJobForm: RecruitmentMod.openJobForm,
-  saveJob: RecruitmentMod.saveJob,
-  viewCandidates: RecruitmentMod.viewCandidates,
-openConvertForm: RecruitmentMod.openConvertForm,
-  convertCandidate: RecruitmentMod.convertCandidate,
-openCandidateForm: RecruitmentMod.openCandidateForm,
-  saveCandidate: RecruitmentMod.saveCandidate,
-  updateCandidateStage: RecruitmentMod.updateCandidateStage,
 
-// Performance
-  renderPerformance: PerformanceMod.renderPerformance,
-openCycleForm: PerformanceMod.openCycleForm,
-  saveCycle: PerformanceMod.saveCycle,
-  viewReviews: PerformanceMod.viewReviews,
-openReviewForm: PerformanceMod.openReviewForm,
-  saveReview: PerformanceMod.saveReview,
-
-// Onboarding
-  renderOnboardingList: OnboardingMod.renderOnboardingList,
-openStartOnboardingForm: OnboardingMod.openStartOnboardingForm,
-  startOnboarding: OnboardingMod.startOnboarding,
-  viewOnboarding: OnboardingMod.viewOnboarding,
-  toggleOnboardingItem: OnboardingMod.toggleOnboardingItem,
-  completeOnboarding: OnboardingMod.completeOnboarding,
-  renderMyOnboarding: OnboardingMod.renderMyOnboarding,
-  renderOnboardingTemplates: OnboardingMod.renderOnboardingTemplates,
-openTemplateForm: OnboardingMod.openTemplateForm,
-  saveTemplate: OnboardingMod.saveTemplate,
-openTemplateItemForm: OnboardingMod.openTemplateItemForm,
-  saveTemplateItem: OnboardingMod.saveTemplateItem,
-  deleteTemplate: OnboardingMod.deleteTemplate,
-
-// Training
-  renderTraining: TrainingMod.renderTraining,
-openProgramForm: TrainingMod.openProgramForm,
-  saveProgram: TrainingMod.saveProgram,
-  enrollTraining: TrainingMod.enrollTraining,
-  viewEnrollments: TrainingMod.viewEnrollments,
-  markTrainingComplete: TrainingMod.markTrainingComplete,
-
-// Claims
-  renderClaims: ClaimsMod.renderClaims,
-  decideClaim: ClaimsMod.decideClaim,
-  renderMyClaims: ClaimsMod.renderMyClaims,
-openClaimForm: ClaimsMod.openClaimForm,
-  submitClaim: ClaimsMod.submitClaim,
-
-// Directory
-renderDirectory: DirectoryMod.renderDirectory,
-
-// Settings
-  renderSettings: SettingsMod.renderSettings,
-  switchSettingsTab: SettingsMod.switchSettingsTab,
-  loadDeptSettings: SettingsMod.loadDeptSettings,
-  loadPosSettings: SettingsMod.loadPosSettings,
-openPositionForm: SettingsMod.openPositionForm,
-  savePosition: SettingsMod.savePosition,
-  loadLeaveTypeSettings: SettingsMod.loadLeaveTypeSettings,
-openLeaveTypeForm: SettingsMod.openLeaveTypeForm,
-  saveLeaveType: SettingsMod.saveLeaveType,
-  loadPayrollCompSettings: SettingsMod.loadPayrollCompSettings,
-openPayrollCompForm: SettingsMod.openPayrollCompForm,
-  savePayrollComp: SettingsMod.savePayrollComp,
-  loadUserSettings: SettingsMod.loadUserSettings,
-openUserLinkForm: SettingsMod.openUserLinkForm,
-  saveUserLink: SettingsMod.saveUserLink,
-  quickAdd: SettingsMod.quickAdd,
-  quickSave: SettingsMod.quickSave,
-  quickDelete: SettingsMod.quickDelete,
-
-// Employee Detail
-  renderEmployeeDetail: EmployeeDetailMod.renderEmployeeDetail,
-  switchDetailTab: EmployeeDetailMod.switchDetailTab,
-  canViewEmployeeDetail: EmployeeDetailMod.canViewEmployeeDetail,
-openContractForm: EmployeeDetailMod.openContractForm,
-  saveContract: EmployeeDetailMod.saveContract,
-openMovementForm: EmployeeDetailMod.openMovementForm,
-  saveMovement: EmployeeDetailMod.saveMovement,
-openDocumentForm: EmployeeDetailMod.openDocumentForm,
-  saveDocumentWithUpload: EmployeeDetailMod.saveDocumentWithUpload,
-  deleteDocument: EmployeeDetailMod.deleteDocument,
-  showPayslipDetail: EmployeeDetailMod.showPayslipDetail,
+  // Every exported feature function becomes available to inline handlers.
+  ...DashboardMod,
+  ...EmployeesMod,
+  ...AttendanceMod,
+  ...LeaveMod,
+  ...ShiftMod,
+  ...OvertimeMod,
+  ...PayrollMod,
+  ...RecruitmentMod,
+  ...PerformanceMod,
+  ...OnboardingMod,
+  ...TrainingMod,
+  ...ClaimsMod,
+  ...DirectoryMod,
+  ...SettingsMod,
+  ...EmployeeDetailMod
 });
 
-// ============ 4. SIDEBAR AVATAR ============
+
+// ============ 4. SIDEBAR / PROFILE HELPERS ============
 window.updateSidebarAvatar = function(){
   const avatarEl = el('user-avatar');
   if(!avatarEl) return;
+
   const photoUrl = state.me?.photo_url || null;
   const initial = (state.profile?.full_name || '?').slice(0,1).toUpperCase();
+
   avatarEl.innerHTML = photoUrl
     ? `<img src="${escapeHtml(photoUrl)}" alt="${initial}">`
     : initial;
 };
 
 window.openMyProfile = function(){
-  if(!state.me || !state.me.id){
+  if(!state.me?.id){
     showToast('Akun Anda belum ditautkan ke data karyawan. Hubungi HR.', true);
     return;
   }
   navigate('employee-detail/' + state.me.id);
 };
 
-// ============ 5. REGISTER ALL ROUTES ============
+
+// ============ 5. ROUTE REGISTRATION ============
 function registerAllRoutes(){
-  // Register setiap modul ke route map
+  registerRoute('dashboard', DashboardMod.renderDashboard);
+
   registerRoute('employees', EmployeesMod.renderEmployees);
+  registerRoute('attendance', AttendanceMod.renderAttendance);
+  registerRoute('shifts', ShiftMod.renderShifts);
+  registerRoute('leave', LeaveMod.renderLeave);
+  registerRoute('overtime', OvertimeMod.renderOvertime);
+  registerRoute('payroll', PayrollMod.renderPayroll);
+
   registerRoute('recruitment', RecruitmentMod.renderRecruitment);
   registerRoute('performance', PerformanceMod.renderPerformance);
   registerRoute('onboarding', OnboardingMod.renderOnboardingList);
   registerRoute('onboarding-templates', OnboardingMod.renderOnboardingTemplates);
   registerRoute('training', TrainingMod.renderTraining);
+
   registerRoute('claims', ClaimsMod.renderClaims);
-  registerRoute('my-claims', ClaimsMod.renderMyClaims);
   registerRoute('directory', DirectoryMod.renderDirectory);
   registerRoute('settings', SettingsMod.renderSettings);
+
+  // Employee views
+  registerRoute('my-attendance', AttendanceMod.renderMyAttendance);
+  registerRoute('my-overtime', OvertimeMod.renderMyOvertime);
+  registerRoute('my-leave', LeaveMod.renderMyLeave);
+  registerRoute('my-payslip', PayrollMod.renderMyPayslip);
+  registerRoute('my-claims', ClaimsMod.renderMyClaims);
+  registerRoute('my-onboarding', OnboardingMod.renderMyOnboarding);
+
+  // Detail view
   registerRoute('employee-detail', EmployeeDetailMod.renderEmployeeDetail);
 }
 
-// ============ 6. INITIALIZE APP ============
+
+// ============ 6. BOOT ============
 document.addEventListener('DOMContentLoaded', () => {
   registerAllRoutes();
-  initAuth();
+
+  // Auth module installs the login/logout handlers immediately.
+  AuthMod.initAuth();
 });
