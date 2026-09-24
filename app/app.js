@@ -746,7 +746,6 @@ function canAccessRoute(base, param){
 function navigate(route){
   const [base, param] = route.split('/');
 
-  // Route guard: cek hak akses
   if(!canAccessRoute(base, param)){
     showToast('Anda tidak memiliki akses ke halaman ini.', true);
     location.hash = 'dashboard';
@@ -756,55 +755,45 @@ function navigate(route){
   location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
 
- const titles = {
-  // ... existing ...
-  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
-  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
-  'my-onboarding':'Onboarding Saya',
-  'onboarding-templates':'Template Onboarding',
-};
+  const titles = {
+    dashboard:'Dashboard', employees:'Data Karyawan', attendance:'Absensi', leave:'Cuti & Izin', payroll:'Payroll',
+    shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
+    recruitment:'Rekrutmen', performance:'Penilaian Kinerja', training:'Training & Development',
+    claims:'Reimbursement', settings:'Pengaturan',
+    'my-attendance':'Absensi Saya', 'my-leave':'Cuti Saya', 'my-payslip':'Slip Gaji Saya',
+    'my-claims':'Klaim Saya', 'my-overtime':'Lembur Saya', 'my-onboarding':'Onboarding Saya',
+    directory:'Direktori Karyawan', 'employee-detail':'Profil Karyawan',
+    onboarding:'Onboarding Checklist', 'onboarding-templates':'Template Onboarding'
+  };
+  el('page-title').textContent = titles[base] || 'Dashboard';
 
-const renderers = {
-  // ... existing ...
-  shifts: renderShifts, overtime: renderOvertime,
-  'my-overtime': renderMyOvertime,
-  onboarding: renderOnboardingList,
-  'my-onboarding': renderMyOnboarding,
-  'onboarding-templates': renderOnboardingTemplates,
-};const titles = {
-  // ... existing ...
-  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
-  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
-  'my-onboarding':'Onboarding Saya',
-  'onboarding-templates':'Template Onboarding',
-};
+  const renderers = {
+    dashboard: renderDashboard,
+    employees: renderEmployees,
+    attendance: renderAttendance,
+    leave: renderLeave,
+    payroll: renderPayroll,
+    shifts: renderShifts,
+    overtime: renderOvertime,
+    recruitment: renderRecruitment,
+    performance: renderPerformance,
+    training: renderTraining,
+    claims: renderClaims,
+    settings: renderSettings,
+    'my-attendance': renderMyAttendance,
+    'my-leave': renderMyLeave,
+    'my-payslip': renderMyPayslip,
+    'my-claims': renderMyClaims,
+    'my-overtime': renderMyOvertime,
+    'my-onboarding': renderMyOnboarding,
+    directory: renderDirectory,
+    'employee-detail': () => renderEmployeeDetail(param),
+    onboarding: renderOnboardingList,
+    'onboarding-templates': renderOnboardingTemplates
+  };
 
-const renderers = {
-  // ... existing ...
-  shifts: renderShifts, overtime: renderOvertime,
-  'my-overtime': renderMyOvertime,
-  onboarding: renderOnboardingList,
-  'my-onboarding': renderMyOnboarding,
-  'onboarding-templates': renderOnboardingTemplates,
-};const titles = {
-  // ... existing ...
-  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
-  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
-  'my-onboarding':'Onboarding Saya',
-  'onboarding-templates':'Template Onboarding',
-};
-
-const renderers = {
-  // ... existing ...
-  shifts: renderShifts, overtime: renderOvertime,
-  'my-overtime': renderMyOvertime,
-  onboarding: renderOnboardingList,
-  'my-onboarding': renderMyOnboarding,
-  'onboarding-templates': renderOnboardingTemplates,
-};
   (renderers[base] || renderDashboard)();
 }
-
 // =====================================================================
 // MODUL: DASHBOARD
 // =====================================================================
@@ -1651,22 +1640,6 @@ async function generatePayslips(runId){
     btns.forEach(b => b.disabled = false);
   }
 }
-
-    // === UPSERT SEMUA SEKALIGUS (1 REQUEST untuk 100 karyawan) ===
-    const { error } = await sb
-      .from('payslips')
-      .upsert(allPayloads, { onConflict: 'payroll_run_id,employee_id' });
-
-    if(error){
-      console.error('Upsert error:', error);
-      if(error.code === '401' || (error.message||'').includes('JWT')){
-        showToast('Sesi berakhir. Silakan login kembali.', true);
-        await doLogout();
-      } else {
-        showToast('Gagal generate: ' + error.message, true);
-      }
-      return;
-    }
 
     // Update status payroll_runs
     await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
