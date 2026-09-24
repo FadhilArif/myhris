@@ -2327,31 +2327,207 @@ async function loadDetailDocuments(){
   container.innerHTML = '<div class="empty-state">Memuat dokumen…</div>';
   const docs = await sbAllQuiet('employee_documents', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } });
   const canManage = isHR() || (ME && ME.id === emp.id);
+  
   container.innerHTML = `
-    <div class="toolbar"><span></span>${canManage ? `<button class="btn btn-primary btn-sm" onclick="openDocumentForm('${emp.id}')">+ Tambah Dokumen</button>` : ''}</div>
+    <div class="toolbar"><span style="font-size:12.5px;color:var(--text-muted);">${docs.length} dokumen tersimpan</span>${canManage ? `<button class="btn btn-primary btn-sm" onclick="openDocumentForm('${emp.id}')">+ Upload Dokumen</button>` : ''}</div>
     <div class="doc-grid">
       ${docs.map(d=>`
-        <div class="doc-card">
-          <div style="font-weight:700;margin-bottom:4px;">${escapeHtml(d.document_type)}</div>
-          <div style="color:var(--text-muted);margin-bottom:8px;word-break:break-all;">${escapeHtml(d.file_name)}</div>
-          ${d.expiry_date ? `<div style="font-size:11.5px;color:var(--warning);margin-bottom:8px;">Berlaku sampai ${fmtDate(d.expiry_date)}</div>` : ''}
-          <a href="${escapeHtml(d.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;">Buka</a>
-        </div>`).join('') || `<div class="empty-state">Belum ada dokumen tersimpan. ${isHR() ? '(Jika tabel "employee_documents" belum dibuat, jalankan migrasi SQL Tahap 4 di Supabase.)' : ''}</div>`}
-    </div>
-    <p style="font-size:11.5px;color:var(--text-muted);margin-top:12px;">Catatan: upload file ke Supabase Storage belum diaktifkan — untuk saat ini dokumen disimpan sebagai tautan (link) eksternal.</p>`;
+        <div class="doc-card" style="position:relative;">
+          <div style="font-size:28px;margin-bottom:6px;">${getFileIcon(d.file_name||'')}</div>
+          <div style="font-weight:700;margin-bottom:4px;font-size:13px;">${escapeHtml(d.document_type)}</div>
+          <div style="color:var(--text-muted);margin-bottom:6px;word-break:break-all;font-size:11.5px;">${escapeHtml(d.file_name)}</div>
+          ${d.file_size ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${formatFileSize(d.file_size)}</div>` : ''}
+          ${d.expiry_date ? `<div style="font-size:11.5px;color:var(--warning);margin-bottom:8px;">📅 Berlaku sampai ${fmtDate(d.expiry_date)}</div>` : ''}
+          <a href="${escapeHtml(d.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;">Lihat</a>
+          ${canManage ? `<button onclick="deleteDocument('${d.id}','${escapeHtml(d.file_url)}')" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;" title="Hapus">🗑</button>` : ''}
+        </div>`).join('') || '<div class="empty-state">Belum ada dokumen. Klik "Upload Dokumen" untuk mulai.</div>'}
+    </div>`;
+}
+
+// Hapus dokumen (DB + Storage)
+async function deleteDocument(docId, fileUrl){
+  if(!confirm('Hapus dokumen ini? Tindakan tidak bisa dibatalkan.')) return;
+  try {
+    // Extract path dari URL: ...employee-documents/PATH
+    const match = fileUrl.match(/employee-documents\/(.+)$/);
+    if(match && match[1]){
+      await sb.storage.from('employee-documents').remove([decodeURIComponent(match[1])]);
+    }
+    const { error } = await sb.from('employee_documents').delete().eq('id', docId);
+    if(error){ showToast('Gagal hapus: '+error.message, true); return; }
+    showToast('Dokumen dihapus.');
+    loadDetailDocuments();
+  } catch(e){
+    console.error(e);
+    showToast('Gagal hapus: '+e.message, true);
+  }
 }
 function openDocumentForm(employeeId){
-  openModal(`<h3>Tambah Dokumen</h3>
+  openModal(`
+    <h3>Tambah Dokumen</h3>
     <div class="field"><label>Jenis Dokumen</label><select id="dc-type">
       ${['KTP','NPWP','Kontrak','Ijazah','Sertifikat','Lainnya'].map(t=>`<option value="${t}">${t}</option>`).join('')}
     </select></div>
-    <div class="field"><label>Nama File</label><input id="dc-name" placeholder="contoh: ktp-budi.pdf"></div>
-    <div class="field"><label>Tautan File (URL)</label><input id="dc-url" placeholder="https://..."></div>
-    <div class="field"><label>Tanggal Kedaluwarsa (opsional)</label><input id="dc-expiry" type="date"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
+
+    <div class="field">
+      <label>Pilih File</label>
+      <div id="dc-dropzone" style="border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;background:#FAFAF6;" 
+           onclick="document.getElementById('dc-file').click()"
+           ondragover="event.preventDefault(); this.style.borderColor='var(--accent)'; this.style.background='#E9F5EE';"
+           ondragleave="this.style.borderColor='var(--border)'; this.style.background='#FAFAF6';"
+           ondrop="event.preventDefault(); this.style.borderColor='var(--border)'; this.style.background='#FAFAF6'; document.getElementById('dc-file').files = event.dataTransfer.files; handleDocFileSelect();">
+        <input type="file" id="dc-file" style="display:none;" 
+               accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+               onchange="handleDocFileSelect()">
+        <div style="font-size:32px;margin-bottom:6px;">📁</div>
+        <div style="font-size:13px;font-weight:600;color:var(--text);">Klik atau drag file ke sini</div>
+        <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">PDF, JPG, PNG, DOC, XLS • Maks 10 MB</div>
+      </div>
+      <div id="dc-file-info" style="display:none;margin-top:10px;padding:10px 12px;background:#E9F5EE;border-radius:8px;font-size:12.5px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="dc-file-icon" style="font-size:20px;">📄</span>
+          <div style="flex:1;min-width:0;">
+            <div id="dc-file-name" style="font-weight:600;word-break:break-all;"></div>
+            <div id="dc-file-size" style="color:var(--text-muted);font-size:11.5px;"></div>
+          </div>
+          <button type="button" onclick="clearDocFile()" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;">✕</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Tanggal Kedaluwarsa (opsional)</label>
+      <input id="dc-expiry" type="date">
+      <small style="color:var(--text-muted);font-size:11px;display:block;margin-top:3px;">Kosongkan jika dokumen tidak punya masa berlaku.</small>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="saveDocument('${employeeId}')">Simpan</button>
-    </div>`);
+      <button class="btn btn-primary" id="dc-submit" onclick="saveDocumentWithUpload('${employeeId}')">Upload & Simpan</button>
+    </div>
+  `);
+}
+
+// Preview file yang dipilih
+function handleDocFileSelect(){
+  const input = el('dc-file');
+  if(!input.files || !input.files.length) return;
+  const file = input.files[0];
+  
+  el('dc-file-info').style.display = 'block';
+  el('dc-file-name').textContent = file.name;
+  el('dc-file-size').textContent = formatFileSize(file.size);
+  el('dc-file-icon').textContent = getFileIcon(file.name);
+}
+
+function clearDocFile(){
+  el('dc-file').value = '';
+  el('dc-file-info').style.display = 'none';
+}
+
+function formatFileSize(bytes){
+  if(bytes < 1024) return bytes + ' B';
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+function getFileIcon(filename){
+  const ext = filename.split('.').pop().toLowerCase();
+  if(['pdf'].includes(ext)) return '📕';
+  if(['jpg','jpeg','png','webp','gif'].includes(ext)) return '🖼️';
+  if(['doc','docx'].includes(ext)) return '📘';
+  if(['xls','xlsx'].includes(ext)) return '📗';
+  return '📄';
+}
+async function saveDocumentWithUpload(employeeId){
+  const fileInput = el('dc-file');
+  const docType = el('dc-type').value;
+  const expiry = el('dc-expiry').value || null;
+  const submitBtn = el('dc-submit');
+
+  // Validasi
+  if(!fileInput.files || !fileInput.files.length){
+    showToast('Pilih file terlebih dahulu.', true);
+    return;
+  }
+  const file = fileInput.files[0];
+  if(file.size > 10 * 1024 * 1024){
+    showToast('Ukuran file maksimal 10 MB.', true);
+    return;
+  }
+
+  // Disable button
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Mengupload…';
+
+  try {
+    // 1. Generate nama file unik: employeeId/tipe_timestamp.ext
+    const ext = file.name.split('.').pop().toLowerCase();
+    const safeType = docType.toLowerCase().replace(/[^a-z0-9]/g,'_');
+    const fileName = `${employeeId}/${safeType}_${Date.now()}.${ext}`;
+
+    // 2. Upload ke Supabase Storage
+    const { data: uploadData, error: uploadErr } = await sb.storage
+      .from('employee-documents')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type
+      });
+
+    if(uploadErr){
+      console.error('Upload error:', uploadErr);
+      showToast('Gagal upload file: ' + uploadErr.message, true);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Upload & Simpan';
+      return;
+    }
+
+    // 3. Ambil public URL
+    const { data: urlData } = sb.storage
+      .from('employee-documents')
+      .getPublicUrl(fileName);
+
+    if(!urlData || !urlData.publicUrl){
+      showToast('Gagal mendapatkan URL file.', true);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Upload & Simpan';
+      return;
+    }
+
+    // 4. Simpan metadata ke tabel employee_documents
+    const payload = {
+      employee_id: employeeId,
+      document_type: docType,
+      file_name: file.name,
+      file_url: urlData.publicUrl,
+      file_size: file.size,
+      file_type: file.type,
+      expiry_date: expiry,
+      uploaded_by: CURRENT_USER ? CURRENT_USER.id : null
+    };
+
+    const { error: dbErr } = await sb.from('employee_documents').insert(payload);
+
+    if(dbErr){
+      // Kalau insert gagal, hapus file yang sudah diupload (cleanup)
+      await sb.storage.from('employee-documents').remove([fileName]);
+      showToast('Gagal menyimpan metadata: ' + dbErr.message, true);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Upload & Simpan';
+      return;
+    }
+
+    showToast('✅ Dokumen berhasil diupload.');
+    closeModal();
+    loadDetailDocuments();
+
+  } catch(e){
+    console.error('Upload exception:', e);
+    showToast('Terjadi kesalahan: ' + e.message, true);
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Upload & Simpan';
+  }
 }
 async function saveDocument(employeeId){
   const fileUrl = el('dc-url').value.trim();
