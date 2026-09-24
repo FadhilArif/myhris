@@ -385,22 +385,23 @@ function buildNav(){
 // Daftar route yang hanya boleh diakses HR/Admin
 const HR_ONLY_ROUTES = ['employees','attendance','leave','payroll','recruitment','performance','claims','settings','employee-detail'];
 
-function canAccessRoute(base){
+function canAccessRoute(base, param){
   if(isHR()) return true; // HR: akses semua
-  // Employee: hanya boleh akses route berikut
-  const employeeRoutes = ['dashboard','my-attendance','my-leave','my-payslip','my-claims','directory','training'];
-  return employeeRoutes.includes(base);
-}
 
-function navigate(route){
-  const [base, param] = route.split('/');
+  // Employee: daftar route yang boleh diakses
+  const employeeRoutes = [
+    'dashboard','my-attendance','my-leave','my-payslip','my-claims',
+    'directory','training'
+  ];
+  if(employeeRoutes.includes(base)) return true;
 
-  // Route guard: cek hak akses
-  if(!canAccessRoute(base)){
-    showToast('Anda tidak memiliki akses ke halaman ini.', true);
-    location.hash = 'dashboard';
-    return;
+  // Spesial: employee boleh lihat employee-detail DIRINYA SENDIRI
+  if(base === 'employee-detail'){
+    return !!(ME && ME.id === param);
   }
+
+  return false;
+}
 
   location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
@@ -1770,6 +1771,7 @@ async function renderEmployeeDetail(employeeId){
     c.innerHTML = '<div class="empty-state">Anda tidak memiliki akses untuk melihat profil karyawan ini.</div>';
     return;
   }
+  // ... sisanya tetap sama
   c.innerHTML = '<div class="empty-state">Memuat profil karyawan…</div>';
   const rows = await sbAll('employees', { select:'*, departments(name), positions(name)', eq:{ id: employeeId } });
   const emp = rows[0];
