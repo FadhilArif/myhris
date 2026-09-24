@@ -41,7 +41,94 @@ Object.assign(window, {
   updateFilterPositionDropdown: EmployeesMod.updateFilterPositionDropdown,
   updatePositionDropdown: EmployeesMod.updatePositionDropdown,
   uploadEmployeePhoto: EmployeesMod.uploadEmployeePhoto
-  // ... daftar module lain di sini
+  // Recruitment
+  renderRecruitment: RecruitmentMod.renderRecruitment,
+  copyCareerPageLink: RecruitmentMod.copyCareerPageLink,
+  closeJobPosting: RecruitmentMod.closeJobPosting,
+  reopenJobPosting: RecruitmentMod.reopenJobPosting,
+  deleteJobPosting: RecruitmentMod.deleteJobPosting,
+openJobForm: RecruitmentMod.openJobForm,
+  saveJob: RecruitmentMod.saveJob,
+  viewCandidates: RecruitmentMod.viewCandidates,
+openConvertForm: RecruitmentMod.openConvertForm,
+  convertCandidate: RecruitmentMod.convertCandidate,
+openCandidateForm: RecruitmentMod.openCandidateForm,
+  saveCandidate: RecruitmentMod.saveCandidate,
+  updateCandidateStage: RecruitmentMod.updateCandidateStage,
+
+// Performance
+  renderPerformance: PerformanceMod.renderPerformance,
+openCycleForm: PerformanceMod.openCycleForm,
+  saveCycle: PerformanceMod.saveCycle,
+  viewReviews: PerformanceMod.viewReviews,
+openReviewForm: PerformanceMod.openReviewForm,
+  saveReview: PerformanceMod.saveReview,
+
+// Onboarding
+  renderOnboardingList: OnboardingMod.renderOnboardingList,
+openStartOnboardingForm: OnboardingMod.openStartOnboardingForm,
+  startOnboarding: OnboardingMod.startOnboarding,
+  viewOnboarding: OnboardingMod.viewOnboarding,
+  toggleOnboardingItem: OnboardingMod.toggleOnboardingItem,
+  completeOnboarding: OnboardingMod.completeOnboarding,
+  renderMyOnboarding: OnboardingMod.renderMyOnboarding,
+  renderOnboardingTemplates: OnboardingMod.renderOnboardingTemplates,
+openTemplateForm: OnboardingMod.openTemplateForm,
+  saveTemplate: OnboardingMod.saveTemplate,
+openTemplateItemForm: OnboardingMod.openTemplateItemForm,
+  saveTemplateItem: OnboardingMod.saveTemplateItem,
+  deleteTemplate: OnboardingMod.deleteTemplate,
+
+// Training
+  renderTraining: TrainingMod.renderTraining,
+openProgramForm: TrainingMod.openProgramForm,
+  saveProgram: TrainingMod.saveProgram,
+  enrollTraining: TrainingMod.enrollTraining,
+  viewEnrollments: TrainingMod.viewEnrollments,
+  markTrainingComplete: TrainingMod.markTrainingComplete,
+
+// Claims
+  renderClaims: ClaimsMod.renderClaims,
+  decideClaim: ClaimsMod.decideClaim,
+  renderMyClaims: ClaimsMod.renderMyClaims,
+openClaimForm: ClaimsMod.openClaimForm,
+  submitClaim: ClaimsMod.submitClaim,
+
+// Directory
+renderDirectory: DirectoryMod.renderDirectory,
+
+// Settings
+  renderSettings: SettingsMod.renderSettings,
+  switchSettingsTab: SettingsMod.switchSettingsTab,
+  loadDeptSettings: SettingsMod.loadDeptSettings,
+  loadPosSettings: SettingsMod.loadPosSettings,
+openPositionForm: SettingsMod.openPositionForm,
+  savePosition: SettingsMod.savePosition,
+  loadLeaveTypeSettings: SettingsMod.loadLeaveTypeSettings,
+openLeaveTypeForm: SettingsMod.openLeaveTypeForm,
+  saveLeaveType: SettingsMod.saveLeaveType,
+  loadPayrollCompSettings: SettingsMod.loadPayrollCompSettings,
+openPayrollCompForm: SettingsMod.openPayrollCompForm,
+  savePayrollComp: SettingsMod.savePayrollComp,
+  loadUserSettings: SettingsMod.loadUserSettings,
+openUserLinkForm: SettingsMod.openUserLinkForm,
+  saveUserLink: SettingsMod.saveUserLink,
+  quickAdd: SettingsMod.quickAdd,
+  quickSave: SettingsMod.quickSave,
+  quickDelete: SettingsMod.quickDelete,
+
+// Employee Detail
+  renderEmployeeDetail: EmployeeDetailMod.renderEmployeeDetail,
+  switchDetailTab: EmployeeDetailMod.switchDetailTab,
+  canViewEmployeeDetail: EmployeeDetailMod.canViewEmployeeDetail,
+openContractForm: EmployeeDetailMod.openContractForm,
+  saveContract: EmployeeDetailMod.saveContract,
+openMovementForm: EmployeeDetailMod.openMovementForm,
+  saveMovement: EmployeeDetailMod.saveMovement,
+openDocumentForm: EmployeeDetailMod.openDocumentForm,
+  saveDocumentWithUpload: EmployeeDetailMod.saveDocumentWithUpload,
+  deleteDocument: EmployeeDetailMod.deleteDocument,
+  showPayslipDetail: EmployeeDetailMod.showPayslipDetail,
 });
 
 // ============ 4. SIDEBAR AVATAR ============
@@ -67,9 +154,16 @@ window.openMyProfile = function(){
 function registerAllRoutes(){
   // Register setiap modul ke route map
   registerRoute('employees', EmployeesMod.renderEmployees);
-  // registerRoute('dashboard', DashboardMod.renderDashboard);
-  // registerRoute('attendance', AttendanceMod.renderAttendance);
-  // ... dst untuk semua module
+  registerRoute('recruitment', RecruitmentMod.renderRecruitment);
+  registerRoute('performance', PerformanceMod.renderPerformance);
+  registerRoute('onboarding', OnboardingMod.renderOnboardingList);
+  registerRoute('onboarding-templates', OnboardingMod.renderOnboardingTemplates);
+  registerRoute('training', TrainingMod.renderTraining);
+  registerRoute('claims', ClaimsMod.renderClaims);
+  registerRoute('my-claims', ClaimsMod.renderMyClaims);
+  registerRoute('directory', DirectoryMod.renderDirectory);
+  registerRoute('settings', SettingsMod.renderSettings);
+  registerRoute('employee-detail', EmployeeDetailMod.renderEmployeeDetail);
 }
 
 // ============ 6. INITIALIZE APP ============
