@@ -1,7 +1,7 @@
 import { sb } from '../lib/supabase.js';
 import { state, CACHE } from '../state/store.js';
 import { sbAll } from '../services/db.js';
-import { el, escapeHtml, openModal, closeModal, showToast, formatNumberInput } from '../utils/dom.js';
+import { el, escapeHtml, openModal, closeModal, showToast } from '../utils/dom.js';
 import { fmtMoney, formatNumberInput as fmtInput } from '../utils/format.js';
 
 export async function renderSettings(){
