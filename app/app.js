@@ -709,38 +709,7 @@ function openEmployeeForm(emp){
     </div>`);
 }
 
-  openModal(`
-    <h3>${emp?'Edit':'Tambah'} Karyawan</h3>
-    <div class="field"><label>Kode Karyawan</label><input id="f-code" value="${emp?escapeHtml(emp.employee_code):''}"></div>
-    <div class="field"><label>Nama Lengkap</label><input id="f-name" value="${emp?escapeHtml(emp.full_name):''}"></div>
-    <div class="field"><label>Email</label><input id="f-email" type="email" value="${emp?escapeHtml(emp.email||''):''}"></div>
-    <div class="field"><label>Telepon</label><input id="f-phone" value="${emp?escapeHtml(emp.phone||''):''}"></div>
-    
-    <div class="field"><label>Departemen</label>
-      <select id="f-dept" onchange="updatePositionDropdown(this.value)">
-        <option value="">- Pilih Departemen -</option>
-        ${deptOpts}
-      </select>
-    </div>
-    
-    <div class="field"><label>Jabatan</label>
-      <select id="f-pos">
-        ${initialPosOpts}
-      </select>
-    </div>
-    
-    <div class="field"><label>Tanggal Bergabung</label><input id="f-join" type="date" value="${emp?emp.join_date:''}"></div>
-  <div class="field"><label>Gaji Pokok</label>
-  <input id="f-salary" type="text" oninput="formatNumberInput(this)" value="${emp ? parseInt(emp.basic_salary).toLocaleString('id-ID') : '0'}">
-</div>
-    <div class="field"><label>Status</label><select id="f-status">
-      ${['active','probation','resigned','terminated'].map(s=>`<option value="${s}" ${emp&&emp.employment_status===s?'selected':''}>${s}</option>`).join('')}
-    </select></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
-      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="saveEmployee('${emp?emp.id:''}')">Simpan</button>
-    </div>`);
-}
+
 function openImportCSVModal() {
     openModal(`
         <h3>Import Data Karyawan via CSV</h3>
