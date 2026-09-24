@@ -89,17 +89,23 @@ const NAV_BY_ROLE = {
 
 export function buildNav(){
   const nav = NAV_BY_ROLE[getRole()] || NAV_EMPLOYEE;
-  el('nav-container').innerHTML = nav.map(g => \`
-    <div class="nav-group">
-      <div class="nav-label">\${g.group}</div>
-      \${g.items.map(it => \`<a class="nav-item" data-route="\${it.route}" onclick="navigate('\${it.route}')">\${ICONS[it.icon] || ''}<span>\${it.label}</span></a>\`).join('')}
-    </div>\`).join('');
+  el('nav-container').innerHTML = nav.map(g =>
+    '<div class="nav-group">' +
+      '<div class="nav-label">' + g.group + '</div>' +
+      g.items.map(it =>
+        '<a class="nav-item" data-route="' + it.route + '" onclick="navigate(\'' + it.route + '\')">' +
+          (ICONS[it.icon] || '') + '<span>' + it.label + '</span>' +
+        '</a>'
+      ).join('') +
+    '</div>'
+  ).join('');
 }
 
 export const HR_ONLY_ROUTES = [
   'employees','attendance','shifts','leave','overtime','payroll',
   'recruitment','performance','claims','employee-detail','reports'
 ];
+
 export const MANAGER_ROUTES = [
   'team','attendance','leave','overtime','performance','training','directory','employee-detail','reports'
 ];
