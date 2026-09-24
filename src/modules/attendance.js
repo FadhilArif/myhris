@@ -1,24 +1,56 @@
 import { sb } from '../lib/supabase.js';
-import { state } from '../state/store.js';
+import { state, isManager } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, showToast, statusBadge, badge } from '../utils/dom.js';
 import { fmtDate, fmtDateTime } from '../utils/format.js';
 
+function scopeEmployees(employees){
+  return isManager()
+    ? employees.filter(e => e.department_id === state.me?.department_id)
+    : employees;
+}
+
 export async function renderAttendance(){
   const c = el('content');
   const today = new Date().toISOString().slice(0,10);
-  c.innerHTML = `<div class="toolbar"><input type="date" id="att-date" value="${today}" style="max-width:180px;" onchange="loadAttendanceForDate()"><span></span></div><div id="att-table"></div>`;
+  c.innerHTML = '<div class="toolbar"><input type="date" id="att-date" value="' + today + '" style="max-width:180px;" onchange="loadAttendanceForDate()"><span style="font-size:12px;color:var(--text-muted);">' +
+    (isManager() ? 'Menampilkan lingkup departemen Anda.' : 'Menampilkan seluruh karyawan.') +
+    '</span></div><div id="att-table"></div>';
   loadAttendanceForDate();
 }
 
 export async function loadAttendanceForDate(){
   const date = el('att-date').value;
-  const [emps, att] = await Promise.all([ sbAll('employees'), sbAll('attendance', {eq:{work_date:date}}) ]);
+  const [allEmps, att, shifts] = await Promise.all([
+    sbAll('employees'),
+    sbAll('attendance', {eq:{work_date:date}}),
+    sbAll('work_shifts')
+  ]);
+  const emps = scopeEmployees(allEmps);
+  const shiftMap = new Map(shifts.map(s => [s.id,s]));
+
   const rows = emps.map(e => {
     const a = att.find(x=>x.employee_id===e.id);
-    return `<tr><td>${escapeHtml(e.full_name)}</td><td>${a&&a.check_in?fmtDateTime(a.check_in):'-'}</td><td>${a&&a.check_out?fmtDateTime(a.check_out):'-'}</td><td>${a?statusBadge(a.status):badge('Belum Absen','neutral')}</td></tr>`;
+    const s = shiftMap.get(e.shift_id);
+    const shiftText = s
+      ? escapeHtml(s.name) + ' (' + String(s.start_time).slice(0,5) + '-' + String(s.end_time).slice(0,5) + ')'
+      : '<span style="color:var(--text-muted);">Belum diatur</span>';
+    return '<tr>' +
+      '<td>' + escapeHtml(e.full_name) + '</td>' +
+      '<td>' + escapeHtml(e.employee_code || '-') + '</td>' +
+      '<td>' + shiftText + '</td>' +
+      '<td>' + (a&&a.check_in?fmtDateTime(a.check_in):'-') + '</td>' +
+      '<td>' + (a&&a.check_out?fmtDateTime(a.check_out):'-') + '</td>' +
+      '<td>' + (a?statusBadge(a.status):badge('Belum Absen','neutral')) + '</td>' +
+    '</tr>';
   }).join('');
-  el('att-table').innerHTML = `<div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Jam Masuk</th><th>Jam Keluar</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="empty-state">Belum ada data.</td></tr>'}</tbody></table></div>`;
+
+  el('att-table').innerHTML =
+    '<div class="card" style="padding:0;"><table><thead><tr>' +
+      '<th>Karyawan</th><th>Kode</th><th>Shift</th><th>Jam Masuk</th><th>Jam Keluar</th><th>Status</th>' +
+    '</tr></thead><tbody>' +
+    (rows || '<tr><td colspan="6" class="empty-state">Belum ada data.</td></tr>') +
+    '</tbody></table></div>';
 }
 
 export async function renderMyAttendance(){
@@ -26,21 +58,24 @@ export async function renderMyAttendance(){
   const ME = state.me;
   if(!ME){ c.innerHTML = '<div class="empty-state">Akun belum ditautkan.</div>'; return; }
   const today = new Date().toISOString().slice(0,10);
-  const todays = await sbAll('attendance', {eq:{employee_id: ME.id, work_date: today}});
+  const [todays, history, shifts] = await Promise.all([
+    sbAll('attendance', {eq:{employee_id: ME.id, work_date: today}}),
+    sbAll('attendance', {eq:{employee_id: ME.id}, order:{col:'work_date', asc:false}}),
+    sbAll('work_shifts')
+  ]);
   const mine = todays[0];
-  const history = await sbAll('attendance', {eq:{employee_id: ME.id}, order:{col:'work_date', asc:false}});
-  c.innerHTML = `
-    <div class="card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
-      <div><div style="font-weight:700;font-size:15px;">${fmtDate(today)}</div>
-        <div style="font-size:12.5px;color:var(--text-muted);">Masuk: ${mine&&mine.check_in?fmtDateTime(mine.check_in):'-'} • Keluar: ${mine&&mine.check_out?fmtDateTime(mine.check_out):'-'}</div>
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-primary" ${mine&&mine.check_in?'disabled':''} onclick="checkIn()">Check In</button>
-        <button class="btn btn-outline" ${(!mine||!mine.check_in||mine.check_out)?'disabled':''} onclick="checkOut()">Check Out</button>
-      </div>
-    </div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Tanggal</th><th>Masuk</th><th>Keluar</th><th>Status</th></tr></thead>
-    <tbody>${history.map(h=>`<tr><td>${fmtDate(h.work_date)}</td><td>${h.check_in?fmtDateTime(h.check_in):'-'}</td><td>${h.check_out?fmtDateTime(h.check_out):'-'}</td><td>${statusBadge(h.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-state">Belum ada riwayat.</td></tr>'}</tbody></table></div>`;
+  const shift = shifts.find(s=>s.id===ME.shift_id);
+  const shiftText = shift ? shift.name + ' (' + String(shift.start_time).slice(0,5) + '-' + String(shift.end_time).slice(0,5) + ')' : 'Belum diatur';
+  c.innerHTML =
+    '<div class="card" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">' +
+      '<div><div style="font-weight:700;font-size:15px;">' + fmtDate(today) + '</div>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);">Shift: ' + escapeHtml(shiftText) + ' • Masuk: ' + (mine&&mine.check_in?fmtDateTime(mine.check_in):'-') + ' • Keluar: ' + (mine&&mine.check_out?fmtDateTime(mine.check_out):'-') + '</div></div>' +
+      '<div style="display:flex;gap:8px;"><button class="btn btn-primary" ' + (mine&&mine.check_in?'disabled':'') + ' onclick="checkIn()">Check In</button>' +
+      '<button class="btn btn-outline" ' + ((!mine||!mine.check_in||mine.check_out)?'disabled':'') + ' onclick="checkOut()">Check Out</button></div>' +
+    '</div>' +
+    '<div class="card" style="padding:0;"><table><thead><tr><th>Tanggal</th><th>Masuk</th><th>Keluar</th><th>Status</th></tr></thead><tbody>' +
+      (history.map(h=>'<tr><td>'+fmtDate(h.work_date)+'</td><td>'+(h.check_in?fmtDateTime(h.check_in):'-')+'</td><td>'+(h.check_out?fmtDateTime(h.check_out):'-')+'</td><td>'+statusBadge(h.status)+'</td></tr>').join('') || '<tr><td colspan="4" class="empty-state">Belum ada riwayat.</td></tr>') +
+    '</tbody></table></div>';
 }
 
 export async function checkIn(){
