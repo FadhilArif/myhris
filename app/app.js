@@ -1228,75 +1228,116 @@ async function savePayrollRun(){
   showToast('Periode payroll dibuat.'); closeModal(); renderPayroll();
 }
 async function generatePayslips(runId){
-  const [emps, components] = await Promise.all([
-    sbAll('employees', {eq:{employment_status:'active'}}),
-    sbAll('payroll_components')
-  ]);
+  // Konfirmasi dulu
+  if(!confirm('Generate slip gaji untuk semua karyawan aktif? Proses ini akan mengubah data periode ini.')) return;
 
-  const earnings = components.filter(c => c.component_type === 'earning');
-  const deductions = components.filter(c => c.component_type === 'deduction');
+  // Disable tombol biar tidak dobel klik
+  const btns = document.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
 
-  for(const e of emps){
-    const details = [];
-    const gajiPokok = Number(e.basic_salary) || 0;
-    
-    // 1. Gaji Pokok
-    let totalEarn = gajiPokok;
-    details.push({ name:'Gaji Pokok', amount: gajiPokok, type:'earning' });
+  showToast('Memproses slip gaji…');
 
-    // 2. Tunjangan (fixed / percentage)
-    let totalTunjangan = 0;
-    earnings.filter(x => x.name !== 'Gaji Pokok').forEach(comp => {
-      const amt = comp.is_percentage 
-        ? (gajiPokok * comp.default_amount / 100) 
-        : Number(comp.default_amount);
-      details.push({ name: comp.name, amount: amt, type:'earning' });
-      totalEarn += amt;
-      totalTunjangan += amt;
-    });
+  try {
+    const [emps, components] = await Promise.all([
+      sbAll('employees', {eq:{employment_status:'active'}}),
+      sbAll('payroll_components')
+    ]);
 
-    // 3. Hitung BPJS Karyawan (yang dipotong dari gaji)
-    const bpjsKesehatan = Math.min(gajiPokok, BPJS_CAP_KESEHATAN) * 0.01;  // 1%
-    const bpjsJHT       = gajiPokok * 0.02;                                 // 2%
-    const bpjsJP        = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01;          // 1%
+    if(!emps.length){ 
+      showToast('Tidak ada karyawan aktif.', true); 
+      return;
+    }
 
-    // 4. Hitung PPh 21 Progresif
-    const ptkpKey = e.ptkp_status || 'TK/0';
-    const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan, ptkpKey);
+    const earnings = components.filter(c => c.component_type === 'earning');
+    const deductions = components.filter(c => c.component_type === 'deduction');
 
-    // 5. Susun potongan
-    let totalDed = 0;
-    deductions.forEach(comp => {
-      let amt = 0;
-      switch(comp.calc_type){
-        case 'bpjs_kesehatan': amt = bpjsKesehatan; break;
-        case 'bpjs_jht':       amt = bpjsJHT; break;
-        case 'bpjs_jp':        amt = bpjsJP; break;
-        case 'pph21':          amt = pph21; break;
-        case 'percentage':     amt = gajiPokok * comp.default_amount / 100; break;
-        default:               amt = Number(comp.default_amount) || 0;
+    // === BANGUN SEMUA PAYLOAD DI MEMORI (tanpa request ke server) ===
+    const allPayloads = [];
+
+    for(const e of emps){
+      const details = [];
+      const gajiPokok = Number(e.basic_salary) || 0;
+      
+      // 1. Gaji Pokok
+      let totalEarn = gajiPokok;
+      details.push({ name:'Gaji Pokok', amount: gajiPokok, type:'earning' });
+
+      // 2. Tunjangan
+      let totalTunjangan = 0;
+      earnings.filter(x => x.name !== 'Gaji Pokok').forEach(comp => {
+        const amt = comp.is_percentage 
+          ? (gajiPokok * comp.default_amount / 100) 
+          : Number(comp.default_amount);
+        details.push({ name: comp.name, amount: amt, type:'earning' });
+        totalEarn += amt;
+        totalTunjangan += amt;
+      });
+
+      // 3. BPJS Karyawan
+      const bpjsKesehatan = Math.min(gajiPokok, BPJS_CAP_KESEHATAN) * 0.01;
+      const bpjsJHT       = gajiPokok * 0.02;
+      const bpjsJP        = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01;
+
+      // 4. PPh 21
+      const ptkpKey = e.ptkp_status || 'TK/0';
+      const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan, ptkpKey);
+
+      // 5. Potongan
+      let totalDed = 0;
+      deductions.forEach(comp => {
+        let amt = 0;
+        switch(comp.calc_type){
+          case 'bpjs_kesehatan': amt = bpjsKesehatan; break;
+          case 'bpjs_jht':       amt = bpjsJHT; break;
+          case 'bpjs_jp':        amt = bpjsJP; break;
+          case 'pph21':          amt = pph21; break;
+          case 'percentage':     amt = gajiPokok * comp.default_amount / 100; break;
+          default:               amt = Number(comp.default_amount) || 0;
+        }
+        amt = Math.round(amt);
+        details.push({ name: comp.name, amount: amt, type:'deduction' });
+        totalDed += amt;
+      });
+
+      allPayloads.push({
+        payroll_run_id: runId,
+        employee_id: e.id,
+        basic_salary: gajiPokok,
+        total_earnings: Math.round(totalEarn),
+        total_deductions: Math.round(totalDed),
+        net_salary: Math.round(totalEarn - totalDed),
+        details
+      });
+    }
+
+    // === UPSERT SEMUA SEKALIGUS (1 REQUEST untuk 100 karyawan) ===
+    const { error } = await sb
+      .from('payslips')
+      .upsert(allPayloads, { onConflict: 'payroll_run_id,employee_id' });
+
+    if(error){
+      console.error('Upsert error:', error);
+      if(error.code === '401' || (error.message||'').includes('JWT')){
+        showToast('Sesi berakhir. Silakan login kembali.', true);
+        await doLogout();
+      } else {
+        showToast('Gagal generate: ' + error.message, true);
       }
-      amt = Math.round(amt);
-      details.push({ name: comp.name, amount: amt, type:'deduction' });
-      totalDed += amt;
-    });
+      return;
+    }
 
-    // 6. Simpan payslip
-    const payload = {
-      payroll_run_id: runId,
-      employee_id: e.id,
-      basic_salary: gajiPokok,
-      total_earnings: Math.round(totalEarn),
-      total_deductions: Math.round(totalDed),
-      net_salary: Math.round(totalEarn - totalDed),
-      details
-    };
-    await sb.from('payslips').upsert(payload, { onConflict: 'payroll_run_id,employee_id' });
+    // Update status payroll_runs
+    await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
+
+    showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`);
+    renderPayroll();
+
+  } catch(e){
+    console.error('generatePayslips error:', e);
+    showToast('Terjadi kesalahan: ' + e.message, true);
+  } finally {
+    btns.forEach(b => b.disabled = false);
   }
-
-  await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
-  showToast(`Slip gaji berhasil dibuat untuk ${emps.length} karyawan.`);
-  renderPayroll();
 }
 async function viewPayslips(runId, month, year){
   const [slips, emps] = await Promise.all([ sbAll('payslips', {eq:{payroll_run_id: runId}}), sbAll('employees') ]);
