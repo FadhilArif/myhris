@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script type="module" src="../src/main.js"></script>
 <style>
   :root{
     --sidebar:#142E28;
@@ -234,16 +235,7 @@
 <div id="modal-root"></div>
 <div id="toast-root"></div>
 
-<script>
-// =====================================================================
-// KONFIGURASI SUPABASE — ganti dengan URL & anon key project kamu
-// =====================================================================
-const SUPABASE_URL = "https://viawltcutsvaawvjqgsk.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpYXdsdGN1dHN2YWF3dmpxZ3NrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4NjUwODQsImV4cCI6MjEwNTQ0MTA4NH0.hhpVS35YUbadEGagHG7aA7A5DFxlrd4VOZz7mxO0dJo";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { storageKey: 'myhris-internal-auth' }
-});
-</script>
-<script src="app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script type="module" src="../src/main.js"></script>
 </body>
 </html>

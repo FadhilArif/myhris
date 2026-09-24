@@ -2,8 +2,8 @@
 
 Sistem Informasi Sumber Daya Manusia berbasis web untuk mengelola seluruh siklus hidup karyawan — dari rekrutmen hingga offboarding.
 
-**Live Demo:** https://myhris-coral.vercel.app/
-**Halaman Karir:** https://myhris-coral.vercel.app/career.html
+**Entry HRIS:** `/hris/`  
+**Halaman Karir:** `/career/`
 
 ---
 
@@ -258,12 +258,15 @@ CREATE TRIGGER on_auth_user_created
 
 ### Langkah 6: Konfigurasi Frontend
 
-Buka `index.html`, ganti di bagian `<script>`:
+Konfigurasi Supabase sekarang dipusatkan di:
 
-```javascript
-const SUPABASE_URL = "https://xxx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIs...";
+```text
+src/lib/supabase.js
 ```
+
+File tersebut membuat Supabase client yang dipakai seluruh modul HRIS.
+
+> Catatan: gunakan **publishable/anon key** di frontend. Jangan pernah menaruh service-role key di file yang dikirim ke browser.
 
 ### Langkah 7: Deploy (Opsional)
 
@@ -283,15 +286,60 @@ npx serve .
 
 ## 📁 Struktur File
 
+Setelah refactor, logic aplikasi tidak lagi berada di satu `app.js`. Entry point HRIS dan Career juga dipisahkan.
+
 ```
 myhris/
-├── index.html              # Shell aplikasi + login
-├── app.js                  # Semua logic SPA
-├── career.html             # Halaman karir publik
-├── style.css               # (legacy, tidak dipakai)
-├── README.md               # Dokumentasi ini
-└── assets/                 # (opsional) icon, logo
+├── index.html                # Redirect ke /hris/
+├── hris/
+│   └── index.html            # Aplikasi HRIS (HR + Karyawan)
+├── career/
+│   └── index.html            # Halaman karir publik
+├── style.css                 # CSS legacy/shared
+├── src/
+│   ├── main.js               # Entry point HRIS + wiring module
+│   ├── lib/
+│   │   └── supabase.js       # Supabase client
+│   ├── config/
+│   │   ├── constants.js      # Konstanta pajak, role, status, dll
+│   │   └── icons.js          # SVG icons
+│   ├── utils/
+│   │   ├── format.js         # Format uang/tanggal/file
+│   │   ├── dom.js            # Helper DOM, modal, toast, badge
+│   │   └── tax.js             # Kalkulasi PPh 21
+│   ├── state/
+│   │   └── store.js          # State aplikasi + cache
+│   ├── services/
+│   │   ├── db.js             # Helper query Supabase
+│   │   ├── auth.js           # Login, logout, boot, preload
+│   │   └── audit.js          # Audit log
+│   ├── routes/
+│   │   ├── navigation.js     # Sidebar/navigation
+│   │   └── router.js         # Route + access control
+│   └── modules/
+│       ├── auth.js
+│       ├── dashboard.js
+│       ├── employees.js
+│       ├── attendance.js
+│       ├── leave.js
+│       ├── shifts.js
+│       ├── overtime.js
+│       ├── payroll.js
+│       ├── recruitment.js
+│       ├── performance.js
+│       ├── onboarding.js
+│       ├── training.js
+│       ├── claims.js
+│       ├── directory.js
+│       ├── settings.js
+│       └── employeeDetail.js
+└── PANDUAN.md
 ```
+
+**Entry point deployment:**
+- HRIS: `/hris/`
+- Career: `/career/`
+- Root `/`: redirect ke `/hris/`
 
 ---
 
@@ -355,35 +403,48 @@ myhris/
 
 ## 🛠️ Panduan Developer
 
-### Struktur `app.js`
+### Arsitektur Modul
 
-```
-├── State Global (CURRENT_USER, PROFILE, ME, CACHE)
-├── Icons (SVG strings)
-├── Helpers (fmtMoney, fmtDate, escapeHtml)
-├── Auth (login, signup, logout, safeBoot)
-├── Navigasi (buildNav, navigate, canAccessRoute)
-├── Modul Dashboard
-├── Modul Data Karyawan
-├── Modul Absensi
-├── Modul Cuti
-├── Modul Payroll
-├── Modul Rekrutmen
-├── Modul Kinerja
-├── Modul Training
-├── Modul Reimbursement
-├── Modul Pengaturan
-├── Employee Detail View (10 tab)
-└── Audit Log
-```
+`src/main.js` adalah entry point utama HRIS. File ini menghubungkan:
+- shared utilities
+- state
+- service Supabase
+- authentication
+- routing
+- seluruh feature module
+
+Feature module berada di `src/modules/` dan masing-masing bertanggung jawab atas area fitur tertentu.
 
 ### Menambah Modul Baru
 
-1. Buat fungsi `renderNamaModul()` di `app.js`
-2. Tambahkan route ke `NAV_HR` atau `NAV_EMPLOYEE`
-3. Daftarkan di objek `renderers` dalam fungsi `navigate`
+1. Buat file baru di `src/modules/`, misalnya `src/modules/example.js`.
+2. Export renderer/function yang dibutuhkan.
+3. Import module tersebut di `src/main.js`.
+4. Tambahkan global binding melalui spread module atau binding eksplisit bila dibutuhkan oleh inline handler.
+5. Daftarkan route dengan `registerRoute()`.
+6. Tambahkan item navigasi di `src/routes/navigation.js` bila halaman perlu muncul di sidebar.
+
+Contoh:
+
+```javascript
+// src/modules/example.js
+export async function renderExample(){
+  // render halaman
+}
+
+// src/main.js
+import * as ExampleMod from './modules/example.js';
+
+registerRoute('example', ExampleMod.renderExample);
+
+Object.assign(window, {
+  ...ExampleMod
+});
+```
 
 ### Koneksi ke Tabel Baru
+
+Gunakan helper di `src/services/db.js`:
 
 ```javascript
 const data = await sbAll('nama_tabel', {
@@ -392,6 +453,25 @@ const data = await sbAll('nama_tabel', {
   order: { col: 'created_at', asc: false }
 });
 ```
+
+### Inline Handler
+
+HTML lama masih menggunakan pola seperti:
+
+```html
+<button onclick="openEmployeeForm()">Tambah</button>
+```
+
+Karena itu fungsi yang dipanggil langsung dari HTML harus tersedia di `window`. `src/main.js` menangani binding global ini.
+
+### Struktur Auth
+
+- `src/modules/auth.js`: binding fungsi auth ke `window` + listener sesi.
+- `src/services/auth.js`: login, signup, logout, boot user, preload master data.
+
+### Refactor Rule
+
+Jangan mengembalikan semua logic ke satu file besar. Fitur baru sebaiknya ditempatkan di module/service yang sesuai dan dihubungkan melalui `main.js`, `router.js`, dan `navigation.js`.
 
 ---
 
@@ -422,8 +502,20 @@ const data = await sbAll('nama_tabel', {
 
 ### ❌ Login berhasil tapi blank
 
-**Penyebab**: Ada syntax error di `app.js`
-**Solusi**: Buka Console (F12) → cek pesan error
+**Penyebab umum**:
+- Module JS gagal dimuat
+- Path `src/main.js` salah
+- Ada import module yang tidak ditemukan
+- Ada exception saat boot/auth
+
+**Solusi**:
+1. Buka Console (F12).
+2. Cari error `404`, `Failed to load module`, `SyntaxError`, atau `ReferenceError`.
+3. Pastikan entry HRIS menggunakan:
+   ```html
+   <script type="module" src="../src/main.js"></script>
+   ```
+4. Pastikan path relative benar bila entry point dipindahkan ke folder lain.
 
 ---
 
@@ -441,5 +533,5 @@ MIT License — bebas digunakan untuk komersial dengan atribusi.
 
 ---
 
-**Versi:** 1.0.0  
+**Versi:** 1.1.0 (modular refactor)  
 **Terakhir update:** September 2026
