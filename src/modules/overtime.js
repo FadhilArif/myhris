@@ -1,12 +1,15 @@
 import { sb } from '../lib/supabase.js';
-import { state, isHR } from '../state/store.js';
+import { state, isHR, isManager } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
 import { fmtMoney, fmtDate } from '../utils/format.js';
 
 export async function renderOvertime(){
   const c = el('content');
-  const [reqs, emps] = await Promise.all([ sbAll('overtime_requests', {order:{col:'created_at', asc:false}}), sbAll('employees', {select:'*, departments(name)'}) ]);
+  const [allReqs, allEmps] = await Promise.all([ sbAll('overtime_requests', {order:{col:'created_at', asc:false}}), sbAll('employees', {select:'*, departments(name)'}) ]);
+  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
+  const teamIds = new Set(emps.map(e => e.id));
+  const reqs = isManager() ? allReqs.filter(r => teamIds.has(r.employee_id)) : allReqs;
   const pending = reqs.filter(r=>r.status==='pending');
   const approved = reqs.filter(r=>r.status==='approved');
   c.innerHTML = `
