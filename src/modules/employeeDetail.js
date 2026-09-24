@@ -1,7 +1,7 @@
 import { state, CACHE, isHR } from '../state/store.js';
 import { sbAll, sbAllQuiet } from '../services/db.js';
-import { el, escapeHtml, openModal, closeModal, showToast, statusBadge, formatFileSize, getFileIcon, handleDocFileSelect, clearDocFile } from '../utils/dom.js';
-import { fmtMoney, fmtDate, fmtDateTime, formatNumberInput } from '../utils/format.js';
+import { el, escapeHtml, openModal, closeModal, showToast, statusBadge, handleDocFileSelect, clearDocFile } from '../utils/dom.js';
+import { fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize, getFileIcon } from '../utils/format.js';
 import { MOVEMENT_LABELS } from '../config/constants.js';
 
 export const DETAIL_TABS = [
