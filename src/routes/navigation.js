@@ -77,6 +77,7 @@ export const NAV_EMPLOYEE = [
   {group:'Perusahaan', items:[
     {route:'directory', label:'Direktori Karyawan', icon:'directory'},
     {route:'training', label:'Training', icon:'training'},
+    {route:'reports', label:'Laporan Saya', icon:'audit'},
   ]}
 ];
 
