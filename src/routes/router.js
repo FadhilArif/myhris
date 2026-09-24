@@ -73,6 +73,6 @@ export function navigate(route){
   if(renderer){
     renderer(param);
   } else {
-    console.warn(\`No renderer for route: \${base}\`);
+    console.warn('No renderer for route: ' + base);
   }
 }
