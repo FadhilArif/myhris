@@ -566,3 +566,22 @@ MIT License — bebas digunakan untuk komersial dengan atribusi.
 
 **Versi:** 1.1.0 (modular refactor)  
 **Terakhir update:** September 2026
+
+## 🧪 Demo Produk
+
+Demo terisolasi tersedia di **`/demo/`**.
+
+- Entry point: `demo/index.html`
+- Dataset: 50 karyawan + shift + absensi + cuti + lembur + payroll + reimbursement + rekrutmen + kinerja + training + audit log
+- Role demo: Admin, HR, Manager, Employee
+- **Tidak memuat Supabase client**
+- Tidak melakukan insert/update/delete ke database
+- Perubahan dari tombol tambah hanya hidup di memory browser dan hilang saat refresh
+- Cocok untuk presentasi calon pelanggan dan video/product showcase
+
+Branch demo:
+`Test-tampilan-demo`
+
+Untuk deployment Vercel, halaman dapat dibuka melalui:
+`/demo/`
+
