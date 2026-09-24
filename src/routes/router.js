@@ -67,7 +67,7 @@ export function navigate(route){
 
   location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
-  el('page-title').textContent = TITLES[base] || 'Dashboard';
+  el('page-title').textContent = base === 'reports' && state.profile?.role === 'employee' ? 'Laporan Saya' : (TITLES[base] || 'Dashboard');
 
   const renderer = routeRenderers[base];
   if(renderer){
