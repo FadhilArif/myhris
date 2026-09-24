@@ -38,7 +38,7 @@ export async function renderTeam(){
       '<td>' + escapeHtml(e.positions?.name || '-') + '</td>' +
       '<td>' + fmtDate(e.join_date) + '</td>' +
       '<td>' + statusBadge(e.employment_status) + '</td>' +
-      '<td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick="navigate(\'employee-detail/' + e.id + \')">Detail</button></td>' +
+      `<td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick="navigate('employee-detail/${e.id}')">Detail</button></td>` +
     '</tr>';
   }).join('');
 
