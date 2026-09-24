@@ -2145,9 +2145,94 @@ async function loadDetailPayroll(){
       <div class="total-amount" style="font-family:'Manrope';font-weight:800;font-size:20px;color:var(--accent-dark);">${fmtMoney(totalTahunIni)}</div>
     </div>
     <div class="card" style="padding:0;">
-      <table><thead><tr><th>Periode</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th></tr></thead>
-      <tbody>${last12.map(s=>{ const run = runs.find(r=>r.id===s.payroll_run_id); return `<tr><td>${run?String(run.period_month).padStart(2,'0')+'/'+run.period_year:'-'}</td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada slip gaji.</td></tr>'}</tbody></table>
+      <table><thead><tr><th>Periode</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th><th></th></tr></thead>
+      <tbody>${last12.map(s=>{
+        const run = runs.find(r=>r.id===s.payroll_run_id);
+        const periode = run ? String(run.period_month).padStart(2,'0')+'/'+run.period_year : '-';
+        return `<tr>
+          <td>${periode}</td>
+          <td>${fmtMoney(s.basic_salary)}</td>
+          <td>${fmtMoney(s.total_earnings)}</td>
+          <td style="color:var(--danger);">− ${fmtMoney(s.total_deductions)}</td>
+          <td><b>${fmtMoney(s.net_salary)}</b></td>
+          <td style="text-align:right;">
+            <button class="btn btn-outline btn-sm" onclick='showPayslipDetail(${JSON.stringify(s).replace(/'/g,"&apos;")}, "${periode}", ${JSON.stringify(emp).replace(/'/g,"&apos;")})'>📄 Detail</button>
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" class="empty-state">Belum ada slip gaji.</td></tr>'}</tbody></table>
     </div>`;
+}
+
+// =====================================================================
+// MODAL DETAIL SLIP GAJI — breakdown pendapatan & potongan
+// =====================================================================
+function showPayslipDetail(slip, periode, emp){
+  const details = Array.isArray(slip.details) ? slip.details : [];
+  const earningsList  = details.filter(d => d.type === 'earning');
+  const deductionsList = details.filter(d => d.type === 'deduction');
+
+  // Kalau details kosong (slip lama), buat fallback dari field utama
+  const earningsRows = earningsList.length
+    ? earningsList.map(d => `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;">
+          <span>${escapeHtml(d.name)}</span>
+          <span style="font-weight:600;">${fmtMoney(d.amount)}</span>
+        </div>`).join('')
+    : `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px;">
+        <span>Gaji Pokok</span>
+        <span style="font-weight:600;">${fmtMoney(slip.basic_salary)}</span>
+       </div>`;
+
+  const deductionsRows = deductionsList.length
+    ? deductionsList.map(d => `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;">
+          <span>${escapeHtml(d.name)}</span>
+          <span style="font-weight:600;color:var(--danger);">− ${fmtMoney(d.amount)}</span>
+        </div>`).join('')
+    : `<div style="padding:8px 0;font-size:13px;color:var(--text-muted);text-align:center;">Tidak ada potongan</div>`;
+
+  openModal(`
+    <h3 style="margin:0 0 4px;">Detail Slip Gaji</h3>
+    <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 16px;">
+      ${escapeHtml(emp.full_name)} • Periode ${periode}
+    </p>
+
+    <div style="background:#E9F5EE;border-radius:8px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:13px;color:#256F4D;font-weight:600;">GAJI BERSIH</div>
+      <div style="font-family:'Manrope';font-weight:800;font-size:22px;color:var(--accent-dark);">${fmtMoney(slip.net_salary)}</div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--accent-dark);padding-bottom:6px;border-bottom:2px solid var(--border);margin-bottom:6px;">
+        💰 Pendapatan
+      </div>
+      ${earningsRows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:13.5px;font-weight:700;background:#FAFAF6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;">
+        <span>Total Pendapatan</span>
+        <span>${fmtMoney(slip.total_earnings)}</span>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--danger);padding-bottom:6px;border-bottom:2px solid var(--border);margin-bottom:6px;">
+        📉 Potongan
+      </div>
+      ${deductionsRows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-size:13.5px;font-weight:700;background:#FBEAE6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;color:var(--danger);">
+        <span>Total Potongan</span>
+        <span>− ${fmtMoney(slip.total_deductions)}</span>
+      </div>
+    </div>
+
+    <p style="font-size:11.5px;color:var(--text-muted);margin:0 0 16px;line-height:1.5;">
+      ℹ️ <b>Pendapatan</b>: gaji pokok + tunjangan (transport, makan, dll).<br>
+      ℹ️ <b>Potongan</b>: BPJS Kesehatan (1%), JHT (2%), JP (1%), PPh 21 progresif.
+    </p>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
+    </div>
+  `);
 }
 
 async function loadDetailPerformance(){
