@@ -5,8 +5,7 @@ import { sb } from './lib/supabase.js';
 import { state, CACHE, isHR } from './state/store.js';
 import {
   el, openModal, closeModal, showToast, escapeHtml, statusBadge, badge,
-  previewPhoto, handleDocFileSelect, clearDocFile,
-  formatFileSize, getFileIcon
+  previewPhoto, handleDocFileSelect, clearDocFile
 } from './utils/dom.js';
 import {
   fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize as formatFileSizeUtil,
