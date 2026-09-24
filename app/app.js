@@ -258,7 +258,7 @@ async function bootAfterLogin(user){
   el('app').style.display = 'block';
   el('user-name').textContent = PROFILE.full_name;
   el('user-role').textContent = ({admin:'Administrator', hr:'Staf HR', manager:'Manajer', employee:'Karyawan'})[PROFILE.role] || PROFILE.role;
-  el('user-avatar').textContent = (PROFILE.full_name||'?').slice(0,1).toUpperCase();
+updateSidebarAvatar();
 
   // --- Preload master data (jangan crash kalau gagal) ---
   try { await preloadMaster(); } catch(e){ console.warn('preloadMaster failed:', e); }
@@ -578,7 +578,16 @@ function applyEmployeeFilters() {
     tbody.innerHTML = filtered.map(e => `
       <tr>
         <td>${escapeHtml(e.employee_code)}</td>
-        <td><a href="javascript:void(0)" onclick="navigate('employee-detail/${e.id}')" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">${escapeHtml(e.full_name)}</a></td>
+   <td>
+  <div style="display:flex;align-items:center;">
+    <div class="emp-avatar-sm">
+      ${e.photo_url 
+        ? `<img src="${escapeHtml(e.photo_url)}" alt="">` 
+        : (e.full_name[0]||'?').toUpperCase()}
+    </div>
+    <a href="javascript:void(0)" onclick="navigate('employee-detail/${e.id}')" style="color:var(--accent-dark);font-weight:600;text-decoration:none;">${escapeHtml(e.full_name)}</a>
+  </div>
+</td>
         <td>${escapeHtml(e.departments?.name||'-')}</td>
         <td>${escapeHtml(e.positions?.name||'-')}</td>
         <td>${fmtDate(e.join_date)}</td>
@@ -589,6 +598,54 @@ function applyEmployeeFilters() {
         </td>
       </tr>`).join('');
   }
+}
+// =====================================================================
+// FOTO PROFIL KARYAWAN
+// =====================================================================
+async function uploadEmployeePhoto(file, employeeCode){
+  if(!file) return null;
+  
+  // Validate
+  if(file.size > 5 * 1024 * 1024){
+    showToast('Ukuran foto maksimal 5 MB.', true);
+    return null;
+  }
+  const allowed = ['image/jpeg','image/png','image/webp','image/gif'];
+  if(!allowed.includes(file.type)){
+    showToast('Format harus JPG, PNG, WEBP, atau GIF.', true);
+    return null;
+  }
+  
+  // Generate nama file unik: code_timestamp.ext
+  const ext = file.name.split('.').pop().toLowerCase();
+  const safeCode = (employeeCode || 'emp').replace(/[^a-zA-Z0-9-]/g,'_');
+  const fileName = `${safeCode}_${Date.now()}.${ext}`;
+  
+  // Upload ke Supabase Storage
+  const { data, error } = await sb.storage
+    .from('employee-photos')
+    .upload(fileName, file, { cacheControl: '3600', upsert: false });
+  
+  if(error){
+    console.error('Upload error:', error);
+    showToast('Gagal upload foto: ' + error.message, true);
+    return null;
+  }
+  
+  // Ambil public URL
+  const { data: urlData } = sb.storage
+    .from('employee-photos')
+    .getPublicUrl(fileName);
+  
+  return urlData?.publicUrl || null;
+}
+
+function previewPhoto(inputEl, previewId){
+  const file = inputEl.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const el2 = document.getElementById(previewId);
+  if(el2) el2.src = url;
 }
 
 function openEmployeeForm(emp){
@@ -601,6 +658,56 @@ function openEmployeeForm(emp){
           .map(p => `<option value="${p.id}" ${emp.position_id===p.id?'selected':''}>${escapeHtml(p.name)}</option>`)
           .join('');
   }
+  
+  // Foto existing (kalau ada)
+  const photoUrl = emp?.photo_url || '';
+  const photoPreview = photoUrl 
+    ? `<img id="photo-preview" src="${escapeHtml(photoUrl)}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:2px solid var(--border);">`
+    : `<div id="photo-placeholder" style="width:80px;height:80px;border-radius:50%;background:#EFEDE3;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:11px;">Belum ada</div>`;
+
+  openModal(`
+    <h3>${emp?'Edit':'Tambah'} Karyawan</h3>
+    
+    <div class="field" style="text-align:center;">
+      <label style="display:block;margin-bottom:8px;">Foto Profil</label>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+        ${photoPreview}
+        <input type="file" id="f-photo" accept="image/*" onchange="previewPhoto(this,'photo-preview')" style="display:none;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('f-photo').click()">📷 Pilih Foto</button>
+        <input type="hidden" id="f-photo-url" value="${escapeHtml(photoUrl)}">
+        <small style="color:var(--text-muted);font-size:11px;">JPG/PNG/WEBP/GIF, maks 5 MB</small>
+      </div>
+    </div>
+    
+    <div class="field"><label>Kode Karyawan</label><input id="f-code" value="${emp?escapeHtml(emp.employee_code):''}"></div>
+    <div class="field"><label>Nama Lengkap</label><input id="f-name" value="${emp?escapeHtml(emp.full_name):''}"></div>
+    <div class="field"><label>Email</label><input id="f-email" type="email" value="${emp?escapeHtml(emp.email||''):''}"></div>
+    <div class="field"><label>Telepon</label><input id="f-phone" value="${emp?escapeHtml(emp.phone||''):''}"></div>
+    
+    <div class="field"><label>Departemen</label>
+      <select id="f-dept" onchange="updatePositionDropdown(this.value)">
+        <option value="">- Pilih Departemen -</option>
+        ${deptOpts}
+      </select>
+    </div>
+    
+    <div class="field"><label>Jabatan</label>
+      <select id="f-pos">${initialPosOpts}</select>
+    </div>
+    
+    <div class="field"><label>Tanggal Bergabung</label><input id="f-join" type="date" value="${emp?emp.join_date:''}"></div>
+    <div class="field"><label>Gaji Pokok</label>
+      <input id="f-salary" type="text" oninput="formatNumberInput(this)" value="${emp ? parseInt(emp.basic_salary).toLocaleString('id-ID') : '0'}">
+    </div>
+    <div class="field"><label>Status</label><select id="f-status">
+      ${['active','probation','resigned','terminated'].map(s=>`<option value="${s}" ${emp&&emp.employment_status===s?'selected':''}>${s}</option>`).join('')}
+    </select></div>
+    
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" id="btn-save-emp" onclick="saveEmployee('${emp?emp.id:''}')">Simpan</button>
+    </div>`);
+}
 
   openModal(`
     <h3>${emp?'Edit':'Tambah'} Karyawan</h3>
@@ -773,17 +880,81 @@ function updatePositionDropdown(departmentId) {
     }
 }
 async function saveEmployee(id){
-  const payload = {
-    employee_code: el('f-code').value.trim(), full_name: el('f-name').value.trim(),
-    email: el('f-email').value.trim() || null, phone: el('f-phone').value.trim() || null,
-    department_id: el('f-dept').value || null, position_id: el('f-pos').value || null,
-    join_date: el('f-join').value || new Date().toISOString().slice(0,10),
-    basic_salary: Number(el('f-salary').value.replace(/\./g, '')) || 0
-  };
-  if(!payload.employee_code || !payload.full_name){ showToast('Kode dan nama wajib diisi.', true); return; }
-  const { error } = id ? await sb.from('employees').update(payload).eq('id', id) : await sb.from('employees').insert(payload);
-  if(error){ showToast(error.message, true); return; }
-  showToast('Data karyawan disimpan.'); closeModal(); renderEmployees();
+  const btn = document.getElementById('btn-save-emp');
+  if(btn){ btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+
+  try {
+    const employeeCode = el('f-code').value.trim();
+    const fullName = el('f-name').value.trim();
+    if(!employeeCode || !fullName){ 
+      showToast('Kode dan nama wajib diisi.', true); 
+      if(btn){ btn.disabled = false; btn.textContent = 'Simpan'; }
+      return; 
+    }
+
+    // 1. Cek apakah ada file foto baru
+    let photoUrl = el('f-photo-url').value || null;
+    const photoInput = el('f-photo');
+    if(photoInput && photoInput.files && photoInput.files.length > 0){
+      const uploaded = await uploadEmployeePhoto(photoInput.files[0], employeeCode);
+      if(!uploaded){
+        if(btn){ btn.disabled = false; btn.textContent = 'Simpan'; }
+        return; // batal kalau upload gagal
+      }
+      photoUrl = uploaded;
+    }
+
+    // 2. Susun payload
+    const payload = {
+      employee_code: employeeCode,
+      full_name: fullName,
+      email: el('f-email').value.trim() || null,
+      phone: el('f-phone').value.trim() || null,
+      department_id: el('f-dept').value || null,
+      position_id: el('f-pos').value || null,
+      join_date: el('f-join').value || new Date().toISOString().slice(0,10),
+      basic_salary: Number(el('f-salary').value.replace(/\./g, '')) || 0,
+      employment_status: el('f-status').value,
+      photo_url: photoUrl
+    };
+
+    // 3. Insert atau update
+    const { error } = id
+      ? await sb.from('employees').update(payload).eq('id', id)
+      : await sb.from('employees').insert(payload);
+
+    if(error){ showToast(error.message, true); return; }
+
+    // 4. Kalau user yang login ini adalah karyawan yang diedit, refresh avatar sidebar
+    if(ME && ME.id === id){
+      ME.photo_url = photoUrl;
+      updateSidebarAvatar();
+    }
+
+    showToast('Data karyawan disimpan.');
+    closeModal();
+    renderEmployees();
+  } catch(e){
+    console.error('saveEmployee error:', e);
+    showToast('Terjadi kesalahan: ' + e.message, true);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Simpan'; }
+  }
+}
+// Update avatar sidebar dengan foto atau inisial
+function updateSidebarAvatar(){
+  const avatarEl = el('user-avatar');
+  if(!avatarEl) return;
+  
+  // Prioritas: foto dari ME → inisial dari PROFILE
+  const photoUrl = ME?.photo_url || null;
+  const initial = (PROFILE?.full_name || '?').slice(0,1).toUpperCase();
+  
+  if(photoUrl){
+    avatarEl.innerHTML = `<img src="${escapeHtml(photoUrl)}" alt="${initial}">`;
+  } else {
+    avatarEl.innerHTML = initial;
+  }
 }
 
 // =====================================================================
@@ -1639,12 +1810,15 @@ async function renderEmployeeDetail(employeeId){
   el('page-title').textContent = 'Profil — ' + emp.full_name;
 
   const initials = emp.full_name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  const avatarHtml = emp.photo_url
+  ? `<img src="${escapeHtml(emp.photo_url)}" alt="${escapeHtml(emp.full_name)}">`
+  : (initials || '?');
   const backRoute = isHR() ? 'employees' : 'directory';
   const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR());
 
   c.innerHTML = `
     <div class="emp-detail-header">
-      <div class="emp-avatar-lg">${initials||'?'}</div>
+<div class="emp-avatar-lg">${avatarHtml}</div>
       <div style="flex:1;min-width:200px;">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <h2 style="margin:0;font-size:19px;">${escapeHtml(emp.full_name)}</h2>
