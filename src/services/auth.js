@@ -4,6 +4,7 @@ import { state, CACHE, isHR } from '../state/store.js';
 import { MIN_BOOT_GAP_MS } from '../config/constants.js';
 import { el, showToast } from '../utils/dom.js';
 import { sbAll } from './db.js';
+import { recordLoginHistory } from './security.js';
 
 // Re-export untuk kompatibilitas window binding
 export async function doSignup(){
@@ -63,6 +64,8 @@ export async function doLogin(){
     if(!data || !data.user){ showLoginError('Login gagal, coba lagi.'); return; }
     state.bootedUserId = null;
     await safeBoot(data.user);
+    // Catat login aplikasi setelah autentikasi berhasil. Lokasi hanya perkiraan dari timezone/locale.
+    await recordLoginHistory();
   } catch(e){
     console.error('Login exception:', e);
     showLoginError('Terjadi kesalahan. Coba lagi.');
