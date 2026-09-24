@@ -21,3 +21,6 @@ export const CACHE = {
 
 // Shortcut helpers
 export const isHR = () => state.profile && (state.profile.role === 'admin' || state.profile.role === 'hr');
+export const isAdmin = () => state.profile?.role === 'admin';
+export const isManager = () => state.profile?.role === 'manager';
+export const isEmployee = () => state.profile?.role === 'employee';
