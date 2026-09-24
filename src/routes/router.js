@@ -1,42 +1,64 @@
 // src/routes/router.js
-import { state, isHR } from '../state/store.js';
+
+import { state } from '../state/store.js';
+import { canAccessRoute, isManager } from '../config/permissions.js';
 import { el, showToast } from '../utils/dom.js';
 
-// Route → renderer map (diisi oleh main.js)
 let routeRenderers = {};
 
 export function registerRoute(name, renderer){
   routeRenderers[name] = renderer;
 }
 
-export function canAccessRoute(base, param){
-  if(isHR()) return true;
-  const employeeRoutes = [
-    'dashboard','my-attendance','my-leave','my-payslip','my-claims',
-    'directory','training','my-overtime','my-onboarding'
-  ];
-  if(employeeRoutes.includes(base)) return true;
-  if(base === 'employee-detail'){
+export function canAccessRouteForRecord(base, param){
+  if(!canAccessRoute(base)) return false;
+
+  if(base !== 'employee-detail') return true;
+
+  // Karyawan hanya boleh membuka profilnya sendiri.
+  if(state.profile?.role === 'employee'){
     return !!(state.me && state.me.id === param);
   }
-  return false;
+
+  // Manager diperbolehkan membuka detail anggota dalam lingkup departemennya.
+  if(isManager()){
+    return !!(state.me?.department_id && state.me?.id !== param);
+  }
+
+  return true;
 }
 
 export const TITLES = {
-  dashboard:'Dashboard', employees:'Data Karyawan', attendance:'Absensi', leave:'Cuti & Izin', payroll:'Payroll',
-  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
-  recruitment:'Rekrutmen', performance:'Penilaian Kinerja', training:'Training & Development',
-  claims:'Reimbursement', settings:'Pengaturan',
-  'my-attendance':'Absensi Saya', 'my-leave':'Cuti Saya', 'my-payslip':'Slip Gaji Saya',
-  'my-claims':'Klaim Saya', 'my-overtime':'Lembur Saya', 'my-onboarding':'Onboarding Saya',
-  directory:'Direktori Karyawan', 'employee-detail':'Profil Karyawan',
-  onboarding:'Onboarding Checklist', 'onboarding-templates':'Template Onboarding'
+  dashboard:'Dashboard',
+  employees:'Data Karyawan',
+  team:'Tim Saya',
+  attendance:'Absensi',
+  leave:'Cuti & Izin',
+  payroll:'Payroll',
+  shifts:'Shift Kerja',
+  overtime:'Persetujuan Lembur',
+  recruitment:'Rekrutmen',
+  performance:'Penilaian Kinerja',
+  training:'Training & Development',
+  claims:'Reimbursement',
+  settings:'Pengaturan',
+  reports:'Laporan & Audit',
+  'my-attendance':'Absensi Saya',
+  'my-leave':'Cuti Saya',
+  'my-payslip':'Slip Gaji Saya',
+  'my-claims':'Klaim Saya',
+  'my-overtime':'Lembur Saya',
+  'my-onboarding':'Onboarding Saya',
+  directory:'Direktori Karyawan',
+  'employee-detail':'Profil Karyawan',
+  onboarding:'Onboarding Checklist',
+  'onboarding-templates':'Template Onboarding'
 };
 
 export function navigate(route){
   const [base, param] = route.split('/');
 
-  if(!canAccessRoute(base, param)){
+  if(!canAccessRouteForRecord(base, param)){
     showToast('Anda tidak memiliki akses ke halaman ini.', true);
     location.hash = 'dashboard';
     return;
@@ -50,6 +72,6 @@ export function navigate(route){
   if(renderer){
     renderer(param);
   } else {
-    console.warn(`No renderer for route: ${base}`);
+    console.warn(\`No renderer for route: \${base}\`);
   }
 }
