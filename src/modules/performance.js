@@ -1,5 +1,6 @@
 import { sb } from '../lib/supabase.js';
-import { state, isHR } from '../state/store.js';
+import { state, isHR, isManager } from '../state/store.js';
+import { can } from '../config/permissions.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge, badge } from '../utils/dom.js';
 import { fmtDate } from '../utils/format.js';
@@ -7,7 +8,7 @@ import { fmtDate } from '../utils/format.js';
 export async function renderPerformance(){
   const c = el('content');
   const cycles = await sbAll('performance_cycles', {order:{col:'start_date', asc:false}});
-  c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openCycleForm()">+ Buat Siklus Penilaian</button></div>
+  c.innerHTML = `<div class="toolbar"><span style="font-size:12px;color:var(--text-muted);">${isManager()?'Lingkup penilaian: departemen Anda.':'Kelola seluruh siklus penilaian.'}</span>${can('performance.manage')?`<button class="btn btn-primary" onclick="openCycleForm()">+ Buat Siklus Penilaian</button>`:''}</div>
     <div class="grid grid-2">${cycles.map(cy=>`
       <div class="card">
         <div style="display:flex;justify-content:space-between;"><b>${escapeHtml(cy.name)}</b>${statusBadge(cy.status)}</div>
@@ -35,7 +36,8 @@ export async function saveCycle(){
 }
 
 export async function viewReviews(cycleId, cycleName){
-  const [emps, reviews] = await Promise.all([ sbAll('employees'), sbAll('performance_reviews', {eq:{cycle_id: cycleId}}) ]);
+  const [allEmps, reviews] = await Promise.all([ sbAll('employees'), sbAll('performance_reviews', {eq:{cycle_id: cycleId}}) ]);
+  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
   el('review-area').innerHTML = `<h3>Penilaian — ${escapeHtml(cycleName)}</h3>
     <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Skor</th><th>Kekuatan</th><th>Area Perbaikan</th><th>Status</th><th></th></tr></thead>
     <tbody>${emps.map(e=>{
