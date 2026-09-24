@@ -9,7 +9,7 @@ export const DETAIL_TABS = [
   { id:'attendance', label:'Absensi' }, { id:'leave', label:'Cuti' },
   { id:'payroll', label:'Payroll' }, { id:'performance', label:'Kinerja' },
   { id:'training', label:'Training' }, { id:'movement', label:'Movement' },
-  { id:'documents', label:'Dokumen' }, { id:'audit', label:'Audit', hrOnly:true }
+  { id:'documents', label:'Dokumen' }, { id:'login-history', label:'Riwayat Login' }, { id:'audit', label:'Audit', hrOnly:true }
 ];
 
 export function canViewEmployeeDetail(employeeId){
@@ -65,7 +65,7 @@ export function switchDetailTab(tab){
   const loaders = {
     overview: loadDetailOverview, employment: loadDetailEmployment, attendance: loadDetailAttendance,
     leave: loadDetailLeave, payroll: loadDetailPayroll, performance: loadDetailPerformance,
-    training: loadDetailTraining, movement: loadDetailMovement, documents: loadDetailDocuments, audit: loadDetailAudit
+    training: loadDetailTraining, movement: loadDetailMovement, documents: loadDetailDocuments, 'login-history': loadDetailLoginHistory, audit: loadDetailAudit
   };
   (loaders[tab] || loadDetailOverview)();
 }
@@ -357,6 +357,38 @@ export async function saveDocumentWithUpload(employeeId){
     showToast('✅ Dokumen berhasil diupload.'); closeModal(); loadDetailDocuments();
   } catch(e){ showToast('Error: '+e.message, true); }
   finally { submitBtn.disabled = false; submitBtn.textContent = 'Upload & Simpan'; }
+}
+
+export async function loadDetailLoginHistory(){
+  const emp = state.empDetail.employee;
+  const container = el('detail-tab-content');
+  const canView = isHR() || (state.me && state.me.id === emp.id);
+  if(!canView){ container.innerHTML = '<div class="empty-state">Akses ditolak.</div>'; return; }
+
+  const logs = await sbAllQuiet('login_history', {
+    eq:{ employee_id: emp.id },
+    order:{ col:'logged_in_at', asc:false }
+  });
+
+  container.innerHTML = `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-size:13px;color:var(--text-muted);">
+        Riwayat ini mencatat login yang berhasil ke aplikasi. Lokasi bersifat <b>perkiraan</b> berdasarkan timezone perangkat dan tidak menggunakan GPS.
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:auto;">
+      <table>
+        <thead><tr><th>Tanggal & Jam</th><th>Lokasi Perkiraan</th><th>Perangkat</th><th>Browser</th></tr></thead>
+        <tbody>
+          ${logs.map(l => `<tr>
+            <td>${fmtDateTime(l.logged_in_at)}</td>
+            <td>${escapeHtml(l.approximate_location || '-')}</td>
+            <td>${escapeHtml(l.device || '-')}</td>
+            <td>${escapeHtml(l.browser || '-')}</td>
+          </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Belum ada riwayat login.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 export async function loadDetailAudit(){
