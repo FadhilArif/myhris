@@ -566,3 +566,50 @@ MIT License — bebas digunakan untuk komersial dengan atribusi.
 
 **Versi:** 1.1.0 (modular refactor)  
 **Terakhir update:** September 2026
+
+
+## 🔐 Security Hardening
+
+Branch pengembangan: `Security-Hardening`
+
+Fokus fase ini adalah membuat lapisan keamanan aplikasi lebih kuat sebelum pengembangan versi self-hosted/local.
+
+### Login History
+
+Setiap login berhasil dicatat ke tabel `login_history` melalui RPC `record_login_history`. Identitas akun ditentukan server dari `auth.uid()`, bukan dari nilai yang dikirim browser.
+
+Informasi yang dicatat:
+- tanggal dan waktu login
+- lokasi **perkiraan** berdasarkan timezone perangkat (tanpa GPS)
+- timezone
+- tipe perangkat
+- browser
+- user-agent
+
+Riwayat dapat dilihat karyawan sendiri melalui **Profil Karyawan → Riwayat Login**. Admin/HR dapat melihat riwayat untuk kebutuhan administrasi dan keamanan.
+
+### Audit Log
+
+Penulisan audit log menggunakan RPC `record_audit` sehingga `actor_id` dan `actor_name` berasal dari akun yang sedang terautentikasi. Audit log tidak dapat diubah atau dihapus melalui policy browser.
+
+### Soft Delete
+
+Data karyawan menggunakan `deleted_at` dan `deleted_by`. Penghapusan permanen melalui browser dinonaktifkan. Fungsi `soft_delete_employee` hanya dapat dipanggil oleh HR/Admin.
+
+### RLS
+
+Policy database tetap menjadi lapisan keamanan utama. UI/route guard bukan pengganti RLS.
+
+### SQL Migration
+
+Jalankan setelah schema dasar dan `database/ROLE-PERMISSIONS.sql`:
+
+```
+database/SECURITY-HARDENING.sql
+```
+
+> **Penting:** jangan menjalankan migration security di production tanpa backup terlebih dahulu dan lakukan pengujian akses tiap role setelah migration.
+
+### Backup & Restore
+
+Backup dan restore tidak dilakukan dari browser. Untuk deployment cloud, gunakan backup platform/database yang tersedia dan dokumentasikan prosedur restore yang diuji. Jangan pernah menyimpan service-role key di frontend.
