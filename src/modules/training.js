@@ -1,5 +1,6 @@
 import { sb } from '../lib/supabase.js';
-import { state, isHR } from '../state/store.js';
+import { state, isHR, isManager } from '../state/store.js';
+import { can } from '../config/permissions.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
 import { fmtDate } from '../utils/format.js';
@@ -15,7 +16,7 @@ export async function renderTraining(){
         <b>${escapeHtml(p.name)}</b>
         <div style="font-size:12.5px;color:var(--text-muted);margin:4px 0;">${escapeHtml(p.provider||'-')} • ${fmtDate(p.start_date)} - ${fmtDate(p.end_date)}</div>
         <p style="font-size:13px;color:var(--text-muted);">${escapeHtml(p.description||'')}</p>
-        ${isHR() ? `<button class="btn btn-outline btn-sm" onclick="viewEnrollments('${p.id}','${escapeHtml(p.name)}')">Lihat Peserta</button>` :
+        ${isHR() || isManager() ? `<button class="btn btn-outline btn-sm" onclick="viewEnrollments('${p.id}','${escapeHtml(p.name)}')">Lihat Peserta</button>` :
           (state.me ? (mine ? statusBadge(mine.status) : `<button class="btn btn-primary btn-sm" onclick="enrollTraining('${p.id}')">Ikuti Training</button>`) : '')}
       </div>`;
     }).join('') || '<div class="empty-state">Belum ada program training.</div>'}</div>
@@ -55,7 +56,7 @@ export async function viewEnrollments(programId, name){
   const [enrolls, emps] = await Promise.all([ sbAll('training_enrollments', {eq:{program_id: programId}}), sbAll('employees') ]);
   el('enroll-area').innerHTML = `<h3>Peserta — ${escapeHtml(name)}</h3>
     <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Status</th><th></th></tr></thead>
-    <tbody>${enrolls.map(en=>{ const e = emps.find(x=>x.id===en.employee_id); return `<tr><td>${e?e.full_name:'-'}</td><td>${statusBadge(en.status)}</td>
+    <tbody>${(isManager() ? enrolls.filter(en => emps.find(x=>x.id===en.employee_id)?.department_id === state.me?.department_id) : enrolls).map(en=>{ const e = emps.find(x=>x.id===en.employee_id); return `<tr><td>${e?e.full_name:'-'}</td><td>${statusBadge(en.status)}</td>
       <td style="text-align:right;">${en.status!=='completed'?`<button class="btn btn-outline btn-sm" onclick="markTrainingComplete('${en.id}','${programId}','${escapeHtml(name)}')">Tandai Selesai</button>`:''}</td></tr>`; }).join('') || '<tr><td colspan="3" class="empty-state">Belum ada peserta.</td></tr>'}</tbody></table></div>`;
 }
 

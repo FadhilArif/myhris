@@ -61,6 +61,7 @@ Sistem Informasi Sumber Daya Manusia berbasis web untuk mengelola seluruh siklus
 - Row Level Security (RLS) per tabel
 - **Audit log** otomatis untuk perubahan penting
 - Role-based access: Admin, HR, Manager, Employee
+- **Laporan & Audit:** export Excel (.xlsx) dan cetak PDF untuk data karyawan, absensi + shift, cuti, saldo cuti, lembur, payroll, rekrutmen, kinerja, training, reimbursement, dan audit log
 
 ---
 
@@ -236,6 +237,36 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "read_all" ON employees FOR SELECT TO authenticated USING (true);
 CREATE POLICY "write_hr" ON employees FOR ALL TO authenticated USING (is_hr_or_admin());
 ```
+
+### Role & Akses MyHRIS
+
+| Role | Fokus akses |
+|---|---|
+| **Admin** | Seluruh modul, Pengaturan, Pengguna & Role, Laporan & Audit |
+| **HR** | Operasional HR: karyawan, absensi, shift, cuti, lembur, payroll, rekrutmen, kinerja, training, reimbursement, laporan |
+| **Manager** | Tim/departemen sendiri: absensi, cuti, lembur, kinerja, training, laporan tim |
+| **Employee** | Data dan transaksi pribadi: absensi, cuti, lembur, slip gaji, klaim, training, direktori |
+
+Manager v1 menggunakan **departemen** sebagai lingkup tim. Ini sengaja kompatibel dengan schema lama yang belum memiliki `manager_id`. Setelah schema `manager_id` ditambahkan, scope dapat diperketat ke bawahan langsung.
+
+### Laporan, Excel & PDF
+
+Menu **Laporan & Audit** tersedia untuk Admin, HR, dan Manager. Laporan yang disediakan mencakup:
+- Data Karyawan
+- Absensi + keterangan shift (nama shift, jam kerja, toleransi)
+- Pengajuan Cuti
+- Saldo Cuti
+- Lembur
+- Payroll + rincian komponen slip
+- Rekrutmen
+- Kinerja
+- Training
+- Reimbursement
+- Audit Log (Admin/HR)
+
+Tombol **Excel** membuat file `.xlsx` menggunakan SheetJS. Tombol **Cetak PDF** membuka dialog print browser sehingga laporan dapat disimpan sebagai PDF.
+
+**Untuk project existing, jalankan juga:** `database/ROLE-PERMISSIONS.sql` setelah schema dasar. RLS frontend dan route guard saja tidak cukup untuk keamanan data.
 
 ### Langkah 5: Trigger Auto-Create Profile
 

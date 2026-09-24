@@ -1,5 +1,5 @@
 import { sb } from '../lib/supabase.js';
-import { state, CACHE, isHR } from '../state/store.js';
+import { state, CACHE, isHR, isManager } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { logAudit } from '../services/audit.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
@@ -20,7 +20,10 @@ export function switchLeaveTab(tab){
 }
 
 export async function loadLeaveRequests(){
-  const [reqs, emps, types] = await Promise.all([ sbAll('leave_requests', {order:{col:'created_at', asc:false}}), sbAll('employees'), sbAll('leave_types') ]);
+  const [allReqs, allEmps, types] = await Promise.all([ sbAll('leave_requests', {order:{col:'created_at', asc:false}}), sbAll('employees'), sbAll('leave_types') ]);
+  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
+  const teamIds = new Set(emps.map(e => e.id));
+  const reqs = isManager() ? allReqs.filter(r => teamIds.has(r.employee_id)) : allReqs;
   el('leave-body').innerHTML = `<div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Status</th><th></th></tr></thead>
     <tbody>${reqs.map(r=>{
       const emp = emps.find(e=>e.id===r.employee_id); const type = types.find(t=>t.id===r.leave_type_id);
@@ -39,10 +42,13 @@ export async function decideLeave(id, decision, employeeId, leaveTypeId, days){
 }
 
 export async function loadLeaveBalances(){
-  const [emps, types, balances] = await Promise.all([ sbAll('employees'), sbAll('leave_types'), sbAll('leave_balances') ]);
+  const [allEmps, types, balances] = await Promise.all([ sbAll('employees'), sbAll('leave_types'), sbAll('leave_balances') ]);
+  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
+  const teamIds = new Set(emps.map(e => e.id));
+  const scopedBalances = isManager() ? balances.filter(b => teamIds.has(b.employee_id)) : balances;
   el('leave-body').innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openBalanceForm()">+ Set Saldo Cuti</button></div>
     <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Jenis Cuti</th><th>Tahun</th><th>Total</th><th>Terpakai</th><th>Sisa</th></tr></thead>
-    <tbody>${balances.map(b=>{
+    <tbody>${scopedBalances.map(b=>{
       const emp = emps.find(e=>e.id===b.employee_id); const type = types.find(t=>t.id===b.leave_type_id);
       return `<tr><td>${escapeHtml(emp?emp.full_name:'-')}</td><td>${escapeHtml(type?type.name:'-')}</td><td>${b.year}</td><td>${b.total_days}</td><td>${b.used_days}</td><td>${(b.total_days-b.used_days).toFixed(1)}</td></tr>`;
     }).join('') || '<tr><td colspan="6" class="empty-state">Belum ada saldo cuti.</td></tr>'}</tbody></table></div>`;

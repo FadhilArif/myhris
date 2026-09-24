@@ -1,12 +1,15 @@
 import { sb } from '../lib/supabase.js';
-import { state, isHR } from '../state/store.js';
+import { state, isHR, isManager } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
 import { fmtMoney, fmtDate } from '../utils/format.js';
 
 export async function renderOvertime(){
   const c = el('content');
-  const [reqs, emps] = await Promise.all([ sbAll('overtime_requests', {order:{col:'created_at', asc:false}}), sbAll('employees', {select:'*, departments(name)'}) ]);
+  const [allReqs, allEmps] = await Promise.all([ sbAll('overtime_requests', {order:{col:'created_at', asc:false}}), sbAll('employees', {select:'*, departments(name)'}) ]);
+  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
+  const teamIds = new Set(emps.map(e => e.id));
+  const reqs = isManager() ? allReqs.filter(r => teamIds.has(r.employee_id)) : allReqs;
   const pending = reqs.filter(r=>r.status==='pending');
   const approved = reqs.filter(r=>r.status==='approved');
   c.innerHTML = `
@@ -23,7 +26,7 @@ export async function renderOvertime(){
       return `<tr><td><b>${escapeHtml(e?e.full_name:'-')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e?.departments?.name||'')}</span></td>
         <td>${fmtDate(r.overtime_date)}</td><td>${start} – ${end}</td><td>${r.hours} jam</td>
         <td style="max-width:180px;font-size:12.5px;">${escapeHtml(r.reason||'-')}</td><td>${r.amount?fmtMoney(r.amount):'-'}</td><td>${statusBadge(r.status)}</td>
-        <td style="text-align:right;">${r.status==='pending'&&isHR()?`<button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button> <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`:''}</td></tr>`;
+        <td style="text-align:right;">${r.status==='pending'&&(isHR()||isManager())?`<button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button> <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`:''}</td></tr>`;
     }).join('') || '<tr><td colspan="8" class="empty-state">Belum ada pengajuan.</td></tr>'}</tbody></table></div>`;
 }
 

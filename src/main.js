@@ -16,6 +16,7 @@ import { sbAll, sbAllQuiet } from './services/db.js';
 import { logAudit } from './services/audit.js';
 import { preloadMaster } from './services/auth.js';
 import { ROLE_LABELS, STAGES, MOVEMENT_LABELS } from './config/constants.js';
+import { can, getRole } from './config/permissions.js';
 import { navigate, registerRoute } from './routes/router.js';
 import { buildNav } from './routes/navigation.js';
 import * as AuthMod from './modules/auth.js';
@@ -37,6 +38,8 @@ import * as ClaimsMod from './modules/claims.js';
 import * as DirectoryMod from './modules/directory.js';
 import * as SettingsMod from './modules/settings.js';
 import * as EmployeeDetailMod from './modules/employeeDetail.js';
+import * as TeamMod from './modules/team.js';
+import * as ReportsMod from './modules/reports.js';
 
 
 // ============ 3. GLOBAL BINDINGS ============
@@ -50,6 +53,8 @@ Object.assign(window, {
   isHR,
   ROLE_LABELS,
   STAGES,
+  can,
+  getRole,
   MOVEMENT_LABELS,
 
   // Helpers
@@ -99,7 +104,9 @@ Object.assign(window, {
   ...ClaimsMod,
   ...DirectoryMod,
   ...SettingsMod,
-  ...EmployeeDetailMod
+  ...EmployeeDetailMod,
+  ...TeamMod,
+  ...ReportsMod
 });
 
 
@@ -128,6 +135,7 @@ window.openMyProfile = function(){
 // ============ 5. ROUTE REGISTRATION ============
 function registerAllRoutes(){
   registerRoute('dashboard', DashboardMod.renderDashboard);
+  registerRoute('team', TeamMod.renderTeam);
 
   registerRoute('employees', EmployeesMod.renderEmployees);
   registerRoute('attendance', AttendanceMod.renderAttendance);
@@ -145,6 +153,7 @@ function registerAllRoutes(){
   registerRoute('claims', ClaimsMod.renderClaims);
   registerRoute('directory', DirectoryMod.renderDirectory);
   registerRoute('settings', SettingsMod.renderSettings);
+  registerRoute('reports', ReportsMod.renderReports);
 
   // Employee views
   registerRoute('my-attendance', AttendanceMod.renderMyAttendance);
