@@ -60,7 +60,7 @@ export const ROLE_PERMISSIONS = {
   [ROLES.EMPLOYEE]: {
     routes: [
       'dashboard','my-attendance','my-overtime','my-leave','my-payslip',
-      'my-claims','directory','training','my-onboarding','employee-detail',
+      'my-claims','directory','training','my-onboarding','employee-detail','reports',
     ],
     actions: [
       'employee.view_self',
@@ -70,6 +70,7 @@ export const ROLE_PERMISSIONS = {
       'payroll.view_self',
       'claims.view_self','claims.create',
       'training.view_self','training.enroll',
+      'reports.view_self','reports.export',
     ],
   },
 };
@@ -125,6 +126,9 @@ export function getAllowedReports(){
   }
   if(isManager()){
     return ['employees','attendance','leave_requests','leave_balances','overtime','performance','training','claims'];
+  }
+  if(isEmployee()){
+    return ['attendance','leave_requests','leave_balances','overtime','payroll','performance','training','claims'];
   }
   return [];
 }
