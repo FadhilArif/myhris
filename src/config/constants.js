@@ -25,3 +25,15 @@ export const MIN_BOOT_GAP_MS = 3000;
 // Roles
 export const ROLES = { ADMIN:'admin', HR:'hr', MANAGER:'manager', EMPLOYEE:'employee' };
 export const ROLE_LABELS = { admin:'Administrator', hr:'Staf HR', manager:'Manajer', employee:'Karyawan' };
+
+// Recruitment
+export const STAGES = ['applied','screening','interview','offer','hired','rejected'];
+
+// Employee movement
+export const MOVEMENT_LABELS = {
+  promotion: 'Promosi',
+  transfer: 'Mutasi',
+  demotion: 'Demosi',
+  salary_change: 'Perubahan Gaji',
+  manager_change: 'Perubahan Atasan'
+};
