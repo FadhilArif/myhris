@@ -32,14 +32,34 @@ function isWithinRange(dateValue, start, end){
   return true;
 }
 
-async function getScopedEmployees(){
+async function getScopedEmployees(selectedEmployeeId = ''){
   const employees = await sbAll('employees', {
     select:'*, departments(name), positions(name)',
     order:{col:'full_name'}
   });
-  if(!isManager()) return employees;
-  return employees.filter(e => e.department_id === state.me?.department_id);
+
+  let scoped = employees;
+  if(isManager()){
+    scoped = scoped.filter(e => e.department_id === state.me?.department_id);
+  } else if(getRole() === 'employee'){
+    scoped = scoped.filter(e => e.id === state.me?.id);
+  }
+
+  if(selectedEmployeeId){
+    scoped = scoped.filter(e => e.id === selectedEmployeeId);
+  }
+
+  return scoped;
 }
+
+function getRole(){
+  return state.profile?.role || 'employee';
+}
+
+const EMPLOYEE_FILTER_REPORTS = new Set([
+  'employees','attendance','leave_requests','leave_balances','overtime',
+  'payroll','performance','training','claims'
+]);
 
 function reportDateDefaults(){
   const now = new Date();
@@ -56,7 +76,7 @@ function displayName(key){
   return REPORT_META[key]?.title || key;
 }
 
-export async function renderReports(){
+export async function renderReports(initialType = ''){
   if(!can('reports.export')){
     el('content').innerHTML = '<div class="empty-state">Akses ditolak.</div>';
     return;
@@ -64,24 +84,34 @@ export async function renderReports(){
 
   const allowed = getAllowedReports();
   const defaults = reportDateDefaults();
-  const options = allowed.map(k => '<option value="' + k + '">' + displayName(k) + '</option>').join('');
+  const selectedType = allowed.includes(initialType) ? initialType : (allowed[0] || '');
+  const options = allowed.map(k => '<option value="' + k + '"' + (k === selectedType ? ' selected' : '') + '>' + displayName(k) + '</option>').join('');
+  const scopedEmployees = await getScopedEmployees();
+  const employeeOptions = scopedEmployees.map(e =>
+    '<option value="' + e.id + '">' + escapeHtml(e.employee_code || '') + ' — ' + escapeHtml(e.full_name) + '</option>'
+  ).join('');
+  const canChooseEmployee = getRole() === 'admin' || getRole() === 'hr' || getRole() === 'manager';
 
   el('content').innerHTML =
     '<div class="card report-controls" style="margin-bottom:16px;">' +
       '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">' +
-        '<div style="min-width:220px;flex:1;"><label>Jenis Laporan</label><select id="report-type" onchange="loadReport()">' + options + '</select></div>' +
+        '<div style="min-width:220px;flex:1;"><label>Jenis Laporan</label><select id="report-type" onchange="toggleReportEmployeeFilter();loadReport()">' + options + '</select></div>' +
+        (canChooseEmployee ? '<div id="report-employee-wrap" style="min-width:240px;flex:1;"><label>Karyawan</label><select id="report-employee" onchange="loadReport()"><option value="">Semua dalam lingkup akses</option>' + employeeOptions + '</select></div>' : '') +
         '<div><label>Mulai</label><input type="date" id="report-start" value="' + defaults.start + '"></div>' +
         '<div><label>Sampai</label><input type="date" id="report-end" value="' + defaults.end + '"></div>' +
-        '<div style="display:flex;gap:8px;">' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
           '<button class="btn btn-primary" onclick="loadReport()">Tampilkan</button>' +
+          '<button class="btn btn-outline" onclick="downloadCurrentReportCSV()">CSV</button>' +
           '<button class="btn btn-outline" onclick="exportCurrentReportExcel()">Excel</button>' +
-          '<button class="btn btn-outline" onclick="printCurrentReport()">Cetak PDF</button>' +
+          '<button class="btn btn-outline" onclick="printCurrentReport()">PDF / Cetak</button>' +
         '</div>' +
       '</div>' +
-      '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Laporan Manager otomatis dibatasi pada karyawan dalam departemennya. Cetak PDF memakai dialog print browser sehingga dapat disimpan sebagai PDF.</div>' +
+      '<div id="report-scope-note" style="font-size:12px;color:var(--text-muted);margin-top:10px;"></div>' +
     '</div>' +
     '<div id="report-area"></div>';
 
+  toggleReportEmployeeFilter();
+  updateReportScopeNote();
   await loadReport();
 }
 
@@ -92,13 +122,14 @@ export async function loadReport(){
 
   const start = el('report-start')?.value || '';
   const end = el('report-end')?.value || '';
+  const employeeId = el('report-employee')?.value || '';
   const area = el('report-area');
   if(!area) return;
 
   area.innerHTML = '<div class="empty-state">Memuat laporan…</div>';
 
   try {
-    const result = await buildReport(key, start, end);
+    const result = await buildReport(key, start, end, employeeId);
     currentHeaders = result.headers;
     currentRows = result.rows;
     renderReportTable(result.title, result.description, result.headers, result.rows);
@@ -108,25 +139,25 @@ export async function loadReport(){
   }
 }
 
-async function buildReport(key, start, end){
+async function buildReport(key, start, end, employeeId = ''){
   switch(key){
-    case 'employees': return reportEmployees();
-    case 'attendance': return reportAttendance(start,end);
-    case 'leave_requests': return reportLeaveRequests(start,end);
-    case 'leave_balances': return reportLeaveBalances();
-    case 'overtime': return reportOvertime(start,end);
-    case 'payroll': return reportPayroll(start,end);
+    case 'employees': return reportEmployees(employeeId);
+    case 'attendance': return reportAttendance(start,end,employeeId);
+    case 'leave_requests': return reportLeaveRequests(start,end,employeeId);
+    case 'leave_balances': return reportLeaveBalances(employeeId);
+    case 'overtime': return reportOvertime(start,end,employeeId);
+    case 'payroll': return reportPayroll(start,end,employeeId);
     case 'recruitment': return reportRecruitment(start,end);
-    case 'performance': return reportPerformance(start,end);
-    case 'training': return reportTraining(start,end);
-    case 'claims': return reportClaims(start,end);
+    case 'performance': return reportPerformance(start,end,employeeId);
+    case 'training': return reportTraining(start,end,employeeId);
+    case 'claims': return reportClaims(start,end,employeeId);
     case 'audit': return reportAudit(start,end);
     default: throw new Error('Jenis laporan tidak dikenal.');
   }
 }
 
-async function reportEmployees(){
-  const emps = await getScopedEmployees();
+async function reportEmployees(employeeId = ''){
+  const emps = await getScopedEmployees(employeeId);
   const headers = ['Kode','Nama','Departemen','Jabatan','Tanggal Bergabung','Status','Gaji Pokok'];
   const rows = emps.map(e => [
     e.employee_code || '',
@@ -140,9 +171,9 @@ async function reportEmployees(){
   return {title:REPORT_META.employees.title,description:REPORT_META.employees.description,headers,rows};
 }
 
-async function reportAttendance(start,end){
+async function reportAttendance(start,end,employeeId = ''){
   const [emps, attendance, shifts] = await Promise.all([
-    getScopedEmployees(),
+    getScopedEmployees(employeeId),
     sbAll('attendance', {order:{col:'work_date',asc:false}}),
     sbAll('work_shifts', {order:{col:'name'}})
   ]);
@@ -169,9 +200,9 @@ async function reportAttendance(start,end){
   return {title:REPORT_META.attendance.title,description:REPORT_META.attendance.description,headers,rows};
 }
 
-async function reportLeaveRequests(start,end){
+async function reportLeaveRequests(start,end,employeeId = ''){
   const [emps, types, reqs] = await Promise.all([
-    getScopedEmployees(), sbAll('leave_types'), sbAll('leave_requests',{order:{col:'created_at',asc:false}})
+    getScopedEmployees(employeeId), sbAll('leave_types'), sbAll('leave_requests',{order:{col:'created_at',asc:false}})
   ]);
   const em=new Map(emps.map(e=>[e.id,e]));
   const tm=new Map(types.map(t=>[t.id,t]));
@@ -183,9 +214,9 @@ async function reportLeaveRequests(start,end){
   return {title:REPORT_META.leave_requests.title,description:REPORT_META.leave_requests.description,headers,rows};
 }
 
-async function reportLeaveBalances(){
+async function reportLeaveBalances(employeeId = ''){
   const year = new Date().getFullYear();
-  const [emps,types,balances]=await Promise.all([getScopedEmployees(),sbAll('leave_types'),sbAll('leave_balances',{eq:{year}})]);
+  const [emps,types,balances]=await Promise.all([getScopedEmployees(employeeId),sbAll('leave_types'),sbAll('leave_balances',{eq:{year}})]);
   const em=new Map(emps.map(e=>[e.id,e])), tm=new Map(types.map(t=>[t.id,t]));
   const rows=balances.filter(b=>em.has(b.employee_id)).map(b=>{
     const e=em.get(b.employee_id),t=tm.get(b.leave_type_id),total=Number(b.total_days||0),used=Number(b.used_days||0);
@@ -195,8 +226,8 @@ async function reportLeaveBalances(){
   return {title:REPORT_META.leave_balances.title,description:'Saldo cuti tahun '+year+'.',headers,rows};
 }
 
-async function reportOvertime(start,end){
-  const [emps,reqs]=await Promise.all([getScopedEmployees(),sbAll('overtime_requests',{order:{col:'created_at',asc:false}})]);
+async function reportOvertime(start,end,employeeId = ''){
+  const [emps,reqs]=await Promise.all([getScopedEmployees(employeeId),sbAll('overtime_requests',{order:{col:'created_at',asc:false}})]);
   const em=new Map(emps.map(e=>[e.id,e]));
   const rows=reqs.filter(r=>em.has(r.employee_id)&&isWithinRange(r.overtime_date,start,end)).map(r=>{
     const e=em.get(r.employee_id);
@@ -206,10 +237,10 @@ async function reportOvertime(start,end){
   return {title:REPORT_META.overtime.title,description:REPORT_META.overtime.description,headers,rows};
 }
 
-async function reportPayroll(start,end){
+async function reportPayroll(start,end,employeeId = ''){
   const [runs,emps,payslips]=await Promise.all([
     sbAll('payroll_runs',{order:{col:'created_at',asc:false}}),
-    getScopedEmployees(),
+    getScopedEmployees(employeeId),
     sbAll('payslips')
   ]);
   const em=new Map(emps.map(e=>[e.id,e]));
@@ -246,8 +277,8 @@ async function reportRecruitment(start,end){
   return {title:REPORT_META.recruitment.title,description:REPORT_META.recruitment.description,headers,rows};
 }
 
-async function reportPerformance(start,end){
-  const [emps,cycles,reviews]=await Promise.all([getScopedEmployees(),sbAll('performance_cycles',{order:{col:'start_date',asc:false}}),sbAll('performance_reviews')]);
+async function reportPerformance(start,end,employeeId = ''){
+  const [emps,cycles,reviews]=await Promise.all([getScopedEmployees(employeeId),sbAll('performance_cycles',{order:{col:'start_date',asc:false}}),sbAll('performance_reviews')]);
   const em=new Map(emps.map(e=>[e.id,e]));
   const cm=new Map(cycles.map(c=>[c.id,c]));
   const rows=reviews.filter(r=>em.has(r.employee_id)).map(r=>{
@@ -260,8 +291,8 @@ async function reportPerformance(start,end){
   return {title:REPORT_META.performance.title,description:REPORT_META.performance.description,headers,rows};
 }
 
-async function reportTraining(start,end){
-  const [emps,programs,enrollments]=await Promise.all([getScopedEmployees(),sbAll('training_programs',{order:{col:'start_date',asc:false}}),sbAll('training_enrollments')]);
+async function reportTraining(start,end,employeeId = ''){
+  const [emps,programs,enrollments]=await Promise.all([getScopedEmployees(employeeId),sbAll('training_programs',{order:{col:'start_date',asc:false}}),sbAll('training_enrollments')]);
   const em=new Map(emps.map(e=>[e.id,e])), pm=new Map(programs.map(p=>[p.id,p]));
   const rows=enrollments.filter(en=>em.has(en.employee_id)).map(en=>{
     const p=pm.get(en.program_id);
@@ -273,8 +304,8 @@ async function reportTraining(start,end){
   return {title:REPORT_META.training.title,description:REPORT_META.training.description,headers,rows};
 }
 
-async function reportClaims(start,end){
-  const [emps,claims]=await Promise.all([getScopedEmployees(),sbAll('reimbursement_claims',{order:{col:'submitted_at',asc:false}})]);
+async function reportClaims(start,end,employeeId = ''){
+  const [emps,claims]=await Promise.all([getScopedEmployees(employeeId),sbAll('reimbursement_claims',{order:{col:'submitted_at',asc:false}})]);
   const em=new Map(emps.map(e=>[e.id,e]));
   const rows=claims.filter(c=>em.has(c.employee_id)&&isWithinRange(c.submitted_at,start,end)).map(c=>{
     const e=em.get(c.employee_id);
@@ -293,6 +324,26 @@ async function reportAudit(start,end){
   ]);
   const headers=['Waktu','Pengguna','Aksi','Entitas','ID Entitas','Data Lama','Data Baru'];
   return {title:REPORT_META.audit.title,description:REPORT_META.audit.description,headers,rows};
+}
+
+export function toggleReportEmployeeFilter(){
+  const key = el('report-type')?.value;
+  const wrap = el('report-employee-wrap');
+  if(!wrap) return;
+  wrap.style.display = EMPLOYEE_FILTER_REPORTS.has(key) ? '' : 'none';
+}
+
+export function updateReportScopeNote(){
+  const note = el('report-scope-note');
+  if(!note) return;
+  const role = getRole();
+  if(role === 'admin' || role === 'hr'){
+    note.textContent = 'HR/Admin: dapat memilih satu karyawan atau seluruh karyawan. Data dibatasi oleh RLS di Supabase.';
+  } else if(role === 'manager'){
+    note.textContent = 'Manager: hanya dapat memilih dirinya bukan sebagai target laporan; pilihan karyawan dibatasi pada departemennya sendiri. Data Payroll perusahaan tidak dibuka oleh RLS untuk Manager.';
+  } else {
+    note.textContent = 'Karyawan: laporan otomatis hanya untuk data Anda sendiri.';
+  }
 }
 
 function renderReportTable(title,description,headers,rows){
@@ -318,6 +369,32 @@ function renderReportTable(title,description,headers,rows){
 function formatCell(value){
   if(typeof value === 'number') return value.toLocaleString('id-ID');
   return value ?? '';
+}
+
+export function downloadCurrentReportCSV(){
+  if(!currentHeaders.length){
+    showToast('Tampilkan laporan terlebih dahulu.', true);
+    return;
+  }
+  const esc = value => {
+    const s = value == null ? '' : String(value);
+    return '"' + s.replace(/"/g,'""') + '"';
+  };
+  const lines = [
+    currentHeaders.map(esc).join(','),
+    ...currentRows.map(row => currentHeaders.map((_,i) => esc(row[i] ?? '')).join(','))
+  ];
+  const blob = new Blob(['\\uFEFF' + lines.join('\\r\\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = 'MyHRIS_' + currentReportKey + '_' + stamp + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('CSV berhasil diunduh.');
 }
 
 export async function exportCurrentReportExcel(){
