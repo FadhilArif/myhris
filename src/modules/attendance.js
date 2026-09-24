@@ -13,7 +13,10 @@ function scopeEmployees(employees){
 export async function renderAttendance(){
   const c = el('content');
   const today = new Date().toISOString().slice(0,10);
-  c.innerHTML = '<div class="toolbar"><input type="date" id="att-date" value="' + today + '" style="max-width:180px;" onchange="loadAttendanceForDate()"><span style="font-size:12px;color:var(--text-muted);">' +
+  c.innerHTML = '<div class="toolbar"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' +
+    '<input type="date" id="att-date" value="' + today + '" style="max-width:180px;" onchange="loadAttendanceForDate()">' +
+    '<button class="btn btn-outline" onclick="navigate(\'reports/attendance\')">Laporan Bulanan</button>' +
+    '</div><span style="font-size:12px;color:var(--text-muted);">' +
     (isManager() ? 'Menampilkan lingkup departemen Anda.' : 'Menampilkan seluruh karyawan.') +
     '</span></div><div id="att-table"></div>';
   loadAttendanceForDate();
