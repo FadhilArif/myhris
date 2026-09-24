@@ -56,7 +56,8 @@
   .nav-item svg{width:17px;height:17px;flex-shrink:0;opacity:.9;}
   .sidebar-footer{margin-top:auto;padding:12px 10px 0;border-top:1px solid #23433A;}
   .user-chip{display:flex;align-items:center;gap:9px;}
-  .avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:'Manrope';}
+ .avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;font-family:'Manrope';overflow:hidden;flex-shrink:0;}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block;}
   .signout{font-size:12px;color:#9FB0A5;cursor:pointer;margin-top:8px;display:inline-block;}
   .signout:hover{color:#fff;}
 
@@ -139,7 +140,10 @@
 
   /* ===== Employee Detail View ===== */
   .emp-detail-header{display:flex;gap:16px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:16px;flex-wrap:wrap;}
-  .emp-avatar-lg{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-family:'Manrope';font-weight:800;font-size:20px;flex-shrink:0;}
+ .emp-avatar-lg{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-family:'Manrope';font-weight:800;font-size:20px;flex-shrink:0;overflow:hidden;}
+.emp-avatar-lg img{width:100%;height:100%;object-fit:cover;display:block;}
+.emp-avatar-sm{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#0E241E;display:flex;align-items:center;justify-content:center;font-family:'Manrope';font-weight:700;font-size:11px;overflow:hidden;vertical-align:middle;margin-right:8px;}
+.emp-avatar-sm img{width:100%;height:100%;object-fit:cover;display:block;}
   .emp-detail-meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:8px;font-size:12.5px;color:var(--text-muted);}
   .emp-detail-meta b{color:var(--text);font-weight:600;}
   .detail-tab-row{display:flex;gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;border-bottom:1px solid var(--border);margin-bottom:16px;padding-bottom:1px;}
