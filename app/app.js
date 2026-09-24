@@ -402,6 +402,15 @@ function canAccessRoute(base, param){
 
   return false;
 }
+function navigate(route){
+  const [base, param] = route.split('/');
+
+  // Route guard: cek hak akses
+  if(!canAccessRoute(base, param)){
+    showToast('Anda tidak memiliki akses ke halaman ini.', true);
+    location.hash = 'dashboard';
+    return;
+  }
 
   location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
