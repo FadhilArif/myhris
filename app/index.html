@@ -198,16 +198,19 @@
     <div class="sidebar">
       <div class="brand"><div class="brand-mark">H</div><div class="brand-name">My HRIS</div></div>
       <div id="nav-container"></div>
-      <div class="sidebar-footer">
-        <div class="user-chip">
-          <div class="avatar" id="user-avatar">?</div>
-          <div>
-            <div style="font-size:13px;font-weight:600;color:#fff;" id="user-name">-</div>
-            <div style="font-size:11px;color:#9FB0A5;" id="user-role">-</div>
-          </div>
-        </div>
-        <span class="signout" onclick="doLogout()">Keluar</span>
-      </div>
+     <div class="sidebar-footer">
+  <div class="user-chip" id="user-chip" onclick="openMyProfile()" title="Buka profil saya">
+    <div class="avatar" id="user-avatar">?</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="user-name">-</div>
+      <div style="font-size:11px;color:#9FB0A5;" id="user-role">-</div>
+    </div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:#9FB0A5;flex-shrink:0;">
+      <path d="M9 18l6-6-6-6"/>
+    </svg>
+  </div>
+  <span class="signout" onclick="doLogout()">Keluar</span>
+</div>
     </div>
     <div class="main">
       <div class="topbar">
