@@ -4,7 +4,7 @@
 let CURRENT_USER = null;   // auth.users row
 let PROFILE = null;        // profiles row (role, employee_id)
 let ME = null;             // employees row milik user login (jika ada)
-let CACHE = { departments: [], positions: [], leaveTypes: [], employees: [] };
+let CACHE = { departments: [], positions: [], leaveTypes: [],   shiftList: [], employees: [] };
 // =====================================================================
 // KONFIGURASI PAJAK & BPJS (2024)
 // =====================================================================
@@ -334,6 +334,7 @@ async function preloadMaster(){
   CACHE.departments = await sbAll('departments', {order:{col:'name'}});
   CACHE.positions = await sbAll('positions', {order:{col:'name'}});
   CACHE.leaveTypes = await sbAll('leave_types', {order:{col:'name'}});
+  CACHE.shiftList = await sbAll('work_shifts', {order:{col:'start_time'}});  // ← tambahkan ini
   if(isHR()) CACHE.employees = await sbAll('employees', {select:'*, departments(name), positions(name)', order:{col:'full_name'}});
 }
 
@@ -405,11 +406,13 @@ sb.auth.onAuthStateChange(async (event, session) => {
 // NAVIGASI
 // =====================================================================
 const NAV_HR = [
-  {group:'Utama', items:[
+{group:'Utama', items:[
     {route:'dashboard', label:'Dashboard', icon:'dashboard'},
     {route:'employees', label:'Data Karyawan', icon:'employees'},
     {route:'attendance', label:'Absensi', icon:'attendance'},
+    {route:'shifts', label:'Shift Kerja', icon:'attendance'},
     {route:'leave', label:'Cuti & Izin', icon:'leave'},
+    {route:'overtime', label:'Lembur', icon:'perf'},
     {route:'payroll', label:'Payroll', icon:'payroll'},
   ]},
   {group:'Talenta', items:[
@@ -426,6 +429,7 @@ const NAV_EMPLOYEE = [
   {group:'Utama', items:[
     {route:'dashboard', label:'Dashboard', icon:'dashboard'},
     {route:'my-attendance', label:'Absensi Saya', icon:'attendance'},
+    {route:'my-overtime', label:'Lembur Saya', icon:'perf'},
     {route:'my-leave', label:'Cuti Saya', icon:'leave'},
     {route:'my-payslip', label:'Slip Gaji', icon:'payroll'},
     {route:'my-claims', label:'Klaim Saya', icon:'claims'},
@@ -445,22 +449,298 @@ function buildNav(){
 }
 // Daftar route yang hanya boleh diakses HR/Admin
 const HR_ONLY_ROUTES = ['employees','attendance','leave','payroll','recruitment','performance','claims','settings','employee-detail'];
+// =====================================================================
+// MODUL: SHIFT KERJA (HR)
+// =====================================================================
+async function renderShifts(){
+  const c = el('content');
+  const [shifts, emps] = await Promise.all([
+    sbAll('work_shifts', {order:{col:'start_time'}}),
+    sbAll('employees', {select:'*, departments(name)', eq:{employment_status:'active'}, order:{col:'full_name'}})
+  ]);
+  c.innerHTML = `
+    <div class="toolbar">
+      <span style="font-size:13px;color:var(--text-muted);">${shifts.length} shift aktif</span>
+      ${isHR() ? `<button class="btn btn-primary" onclick="openShiftForm()">+ Tambah Shift</button>` : ''}
+    </div>
 
+    <div class="grid grid-2" style="margin-bottom:20px;">
+      ${shifts.map(s=>`
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:start;">
+            <div>
+              <div style="font-weight:700;font-size:15px;">${escapeHtml(s.name)}</div>
+              <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px;">
+                🕐 ${s.start_time.slice(0,5)} – ${s.end_time.slice(0,5)} • Toleransi ${s.late_tolerance_min} menit
+              </div>
+            </div>
+            <span class="badge badge-${s.is_active?'success':'neutral'}">${s.is_active?'Aktif':'Nonaktif'}</span>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:6px;">
+            ${isHR() ? `
+              <button class="btn btn-outline btn-sm" onclick='openShiftForm(${JSON.stringify(s).replace(/'/g,"&apos;")})'>Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteShift('${s.id}')">Hapus</button>
+            ` : ''}
+          </div>
+        </div>
+      `).join('') || '<div class="empty-state">Belum ada shift.</div>'}
+    </div>
+
+    <h3 style="margin-top:20px;">Penugasan Shift Karyawan</h3>
+    <div class="card" style="padding:0;">
+      <table><thead><tr>
+        <th>Karyawan</th><th>Departemen</th><th>Shift Sekarang</th><th></th>
+      </tr></thead>
+      <tbody>${emps.map(e=>{
+        const s = shifts.find(x=>x.id===e.shift_id);
+        return `<tr>
+          <td><b>${escapeHtml(e.full_name)}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e.employee_code||'')}</span></td>
+          <td>${escapeHtml(e.departments?.name||'-')}</td>
+          <td>${s ? `<span class="badge badge-success">${escapeHtml(s.name)}</span>` : '<span class="badge badge-neutral">Belum diset</span>'}</td>
+          <td style="text-align:right;">
+            ${isHR() ? `<button class="btn btn-outline btn-sm" onclick="openAssignShiftForm('${e.id}','${e.full_name}','${e.shift_id||''}')">Ganti Shift</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+}
+
+function openShiftForm(s){
+  openModal(`
+    <h3>${s?'Edit':'Tambah'} Shift</h3>
+    <div class="field"><label>Nama Shift</label><input id="sf-name" value="${s?escapeHtml(s.name):''}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Jam Mulai</label><input id="sf-start" type="time" value="${s?s.start_time.slice(0,5):'09:00'}"></div>
+      <div class="field"><label>Jam Selesai</label><input id="sf-end" type="time" value="${s?s.end_time.slice(0,5):'17:00'}"></div>
+    </div>
+    <div class="field"><label>Toleransi Keterlambatan (menit)</label><input id="sf-tol" type="number" value="${s?s.late_tolerance_min:15}"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveShift('${s?s.id:''}')">Simpan</button>
+    </div>`);
+}
+
+async function saveShift(id){
+  const payload = {
+    name: el('sf-name').value.trim(),
+    start_time: el('sf-start').value + ':00',
+    end_time: el('sf-end').value + ':00',
+    late_tolerance_min: Number(el('sf-tol').value) || 15
+  };
+  if(!payload.name){ showToast('Nama shift wajib diisi.', true); return; }
+  const { error } = id 
+    ? await sb.from('work_shifts').update(payload).eq('id', id)
+    : await sb.from('work_shifts').insert(payload);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Shift disimpan.'); closeModal(); renderShifts();
+}
+
+async function deleteShift(id){
+  if(!confirm('Hapus shift ini? Karyawan yang memakai akan kehilangan penugasan.')) return;
+  await sb.from('employees').update({ shift_id: null }).eq('shift_id', id);
+  const { error } = await sb.from('work_shifts').delete().eq('id', id);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Shift dihapus.'); renderShifts();
+}
+
+function openAssignShiftForm(empId, empName, currentShiftId){
+  const shifts = CACHE.shiftList || [];
+  openModal(`
+    <h3>Ganti Shift — ${escapeHtml(empName)}</h3>
+    <div class="field"><label>Pilih Shift</label><select id="as-shift">
+      <option value="">- Tanpa Shift -</option>
+      ${shifts.map(s=>`<option value="${s.id}" ${currentShiftId===s.id?'selected':''}>${escapeHtml(s.name)} (${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)})</option>`).join('')}
+    </select></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveAssignShift('${empId}')">Simpan</button>
+    </div>`);
+}
+
+async function saveAssignShift(empId){
+  const shiftId = el('as-shift').value || null;
+  const { error } = await sb.from('employees').update({ shift_id: shiftId }).eq('id', empId);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Shift karyawan diperbarui.'); closeModal(); renderShifts();
+}
+// =====================================================================
+// MODUL: LEMBUR — VIEW HR
+// =====================================================================
+async function renderOvertime(){
+  const c = el('content');
+  const [reqs, emps] = await Promise.all([
+    sbAll('overtime_requests', {order:{col:'created_at', asc:false}}),
+    sbAll('employees', {select:'*, departments(name)'})
+  ]);
+  const pending = reqs.filter(r=>r.status==='pending');
+  const approved = reqs.filter(r=>r.status==='approved');
+
+  c.innerHTML = `
+    <div class="grid grid-3" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Menunggu Persetujuan</div></div>
+      <div class="stat-card"><div class="stat-num">${approved.length}</div><div class="stat-label">Disetujui</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(approved.reduce((s,r)=>s+(Number(r.amount)||0),0))}</div><div class="stat-label">Total Nilai Lembur</div></div>
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr>
+        <th>Karyawan</th><th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Alasan</th><th>Nilai</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>${reqs.map(r=>{
+        const e = emps.find(x=>x.id===r.employee_id);
+        const start = r.start_time ? new Date(r.start_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '-';
+        const end = r.end_time ? new Date(r.end_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '-';
+        return `<tr>
+          <td><b>${escapeHtml(e?e.full_name:'-')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e?.departments?.name||'')}</span></td>
+          <td>${fmtDate(r.overtime_date)}</td>
+          <td>${start} – ${end}</td>
+          <td>${r.hours} jam</td>
+          <td style="max-width:180px;font-size:12.5px;">${escapeHtml(r.reason||'-')}</td>
+          <td>${r.amount ? fmtMoney(r.amount) : '-'}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td style="text-align:right;">
+            ${r.status==='pending' && isHR() ? `
+              <button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button>
+              <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>
+            ` : ''}
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="8" class="empty-state">Belum ada pengajuan lembur.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+async function approveOvertime(id){
+  // Ambil data untuk hitung amount
+  const reqs = await sbAll('overtime_requests', {eq:{id}});
+  const req = reqs[0];
+  if(!req){ showToast('Data tidak ditemukan.', true); return; }
+
+  const emps = await sbAll('employees', {eq:{id: req.employee_id}});
+  const emp = emps[0];
+  if(!emp){ showToast('Karyawan tidak ditemukan.', true); return; }
+
+  // Hitung: (gaji pokok / 173) × jam × multiplier
+  const hourlyRate = (Number(emp.basic_salary)||0) / 173;
+  const amount = Math.round(hourlyRate * Number(req.hours) * Number(req.rate_multiplier || 1.5));
+
+  const { error } = await sb.from('overtime_requests').update({
+    status: 'approved',
+    approved_by: PROFILE.employee_id || null,
+    approved_at: new Date().toISOString(),
+    amount: amount
+  }).eq('id', id);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Lembur disetujui: ' + fmtMoney(amount));
+  renderOvertime();
+}
+
+async function rejectOvertime(id){
+  const { error } = await sb.from('overtime_requests').update({
+    status: 'rejected',
+    approved_by: PROFILE.employee_id || null,
+    approved_at: new Date().toISOString()
+  }).eq('id', id);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Lembur ditolak.');
+  renderOvertime();
+}
+
+// =====================================================================
+// MODUL: LEMBUR SAYA (EMPLOYEE)
+// =====================================================================
+async function renderMyOvertime(){
+  const c = el('content');
+  if(!ME){ c.innerHTML = '<div class="empty-state">Akun belum ditautkan ke data karyawan.</div>'; return; }
+  const reqs = await sbAll('overtime_requests', {eq:{employee_id: ME.id}, order:{col:'created_at', asc:false}});
+
+  const pending = reqs.filter(r=>r.status==='pending');
+  const approved = reqs.filter(r=>r.status==='approved');
+  const totalAmount = approved.reduce((s,r)=>s+(Number(r.amount)||0),0);
+
+  c.innerHTML = `
+    <div class="toolbar">
+      <div class="grid grid-3" style="flex:1;">
+        <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Menunggu</div></div>
+        <div class="stat-card"><div class="stat-num">${approved.length}</div><div class="stat-label">Disetujui</div></div>
+        <div class="stat-card"><div class="stat-num">${fmtMoney(totalAmount)}</div><div class="stat-label">Total Nilai</div></div>
+      </div>
+      <button class="btn btn-primary" onclick="openOvertimeRequestForm()" style="align-self:flex-start;">+ Ajukan Lembur</button>
+    </div>
+    <div class="card" style="padding:0;">
+      <table><thead><tr><th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Alasan</th><th>Nilai</th><th>Status</th></tr></thead>
+      <tbody>${reqs.map(r=>{
+        const start = new Date(r.start_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+        const end = new Date(r.end_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+        return `<tr>
+          <td>${fmtDate(r.overtime_date)}</td>
+          <td>${start} – ${end}</td>
+          <td>${r.hours} jam</td>
+          <td style="font-size:12.5px;">${escapeHtml(r.reason||'-')}</td>
+          <td>${r.amount ? fmtMoney(r.amount) : '-'}</td>
+          <td>${statusBadge(r.status)}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" class="empty-state">Belum ada pengajuan lembur.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+function openOvertimeRequestForm(){
+  const today = new Date().toISOString().slice(0,10);
+  openModal(`
+    <h3>Ajukan Lembur</h3>
+    <div class="field"><label>Tanggal Lembur</label><input id="ot-date" type="date" value="${today}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Jam Mulai</label><input id="ot-start" type="time" value="17:00"></div>
+      <div class="field"><label>Jam Selesai</label><input id="ot-end" type="time" value="20:00"></div>
+    </div>
+    <div class="field"><label>Alasan / Pekerjaan</label><textarea id="ot-reason" rows="3" placeholder="Contoh: Rapat dengan klien, finishing report bulanan, dll"></textarea></div>
+    <div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+      ℹ️ Pengajuan harus disetujui HR sebelum nilainya masuk ke payroll.<br>
+      Rate: (gaji pokok ÷ 173) × jam × 1.5 (standar Depnaker).
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="submitOvertimeRequest()">Ajukan</button>
+    </div>`);
+}
+
+async function submitOvertimeRequest(){
+  const date = el('ot-date').value;
+  const start = el('ot-start').value;
+  const end = el('ot-end').value;
+  const reason = el('ot-reason').value.trim();
+
+  if(!date || !start || !end){ showToast('Lengkapi tanggal dan jam.', true); return; }
+
+  // Hitung jam
+  const startDT = new Date(date + 'T' + start + ':00');
+  const endDT = new Date(date + 'T' + end + ':00');
+  if(endDT <= startDT){ showToast('Jam selesai harus setelah jam mulai.', true); return; }
+  const hours = (endDT - startDT) / 3600000;
+  if(hours > 8){ showToast('Lembur maksimal 8 jam per hari.', true); return; }
+
+  const { error } = await sb.from('overtime_requests').insert({
+    employee_id: ME.id,
+    overtime_date: date,
+    start_time: startDT.toISOString(),
+    end_time: endDT.toISOString(),
+    hours: Math.round(hours * 100) / 100,
+    reason: reason,
+    status: 'pending'
+  });
+  if(error){ showToast(error.message, true); return; }
+  showToast('Pengajuan lembur terkirim.');
+  closeModal();
+  renderMyOvertime();
+}
 function canAccessRoute(base, param){
-  if(isHR()) return true; // HR: akses semua
-
-  // Employee: daftar route yang boleh diakses
+  if(isHR()) return true;
   const employeeRoutes = [
     'dashboard','my-attendance','my-leave','my-payslip','my-claims',
-    'directory','training'
+    'directory','training','my-overtime','my-onboarding'
   ];
   if(employeeRoutes.includes(base)) return true;
-
-  // Spesial: employee boleh lihat employee-detail DIRINYA SENDIRI
   if(base === 'employee-detail'){
     return !!(ME && ME.id === param);
   }
-
   return false;
 }
 function navigate(route){
@@ -476,21 +756,52 @@ function navigate(route){
   location.hash = route;
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === base));
 
-  const titles = {
-    dashboard:'Dashboard', employees:'Data Karyawan', attendance:'Absensi', leave:'Cuti & Izin', payroll:'Payroll',
-    recruitment:'Rekrutmen', performance:'Penilaian Kinerja', training:'Training & Development', claims:'Reimbursement',
-    settings:'Pengaturan', 'my-attendance':'Absensi Saya', 'my-leave':'Cuti Saya', 'my-payslip':'Slip Gaji Saya',
-    'my-claims':'Klaim Saya', directory:'Direktori Karyawan', 'employee-detail':'Profil Karyawan'
-  };
-  el('page-title').textContent = titles[base] || 'Dashboard';
+ const titles = {
+  // ... existing ...
+  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
+  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
+  'my-onboarding':'Onboarding Saya',
+  'onboarding-templates':'Template Onboarding',
+};
 
-  const renderers = {
-    dashboard: renderDashboard, employees: renderEmployees, attendance: renderAttendance, leave: renderLeave,
-    payroll: renderPayroll, recruitment: renderRecruitment, performance: renderPerformance, training: renderTraining,
-    claims: renderClaims, settings: renderSettings, 'my-attendance': renderMyAttendance, 'my-leave': renderMyLeave,
-    'my-payslip': renderMyPayslip, 'my-claims': renderMyClaims, directory: renderDirectory,
-    'employee-detail': () => renderEmployeeDetail(param)
-  };
+const renderers = {
+  // ... existing ...
+  shifts: renderShifts, overtime: renderOvertime,
+  'my-overtime': renderMyOvertime,
+  onboarding: renderOnboardingList,
+  'my-onboarding': renderMyOnboarding,
+  'onboarding-templates': renderOnboardingTemplates,
+};const titles = {
+  // ... existing ...
+  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
+  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
+  'my-onboarding':'Onboarding Saya',
+  'onboarding-templates':'Template Onboarding',
+};
+
+const renderers = {
+  // ... existing ...
+  shifts: renderShifts, overtime: renderOvertime,
+  'my-overtime': renderMyOvertime,
+  onboarding: renderOnboardingList,
+  'my-onboarding': renderMyOnboarding,
+  'onboarding-templates': renderOnboardingTemplates,
+};const titles = {
+  // ... existing ...
+  shifts:'Shift Kerja', overtime:'Persetujuan Lembur',
+  'my-overtime':'Lembur Saya', onboarding:'Onboarding Checklist',
+  'my-onboarding':'Onboarding Saya',
+  'onboarding-templates':'Template Onboarding',
+};
+
+const renderers = {
+  // ... existing ...
+  shifts: renderShifts, overtime: renderOvertime,
+  'my-overtime': renderMyOvertime,
+  onboarding: renderOnboardingList,
+  'my-onboarding': renderMyOnboarding,
+  'onboarding-templates': renderOnboardingTemplates,
+};
   (renderers[base] || renderDashboard)();
 }
 
@@ -1236,30 +1547,30 @@ async function savePayrollRun(){
   showToast('Periode payroll dibuat.'); closeModal(); renderPayroll();
 }
 async function generatePayslips(runId){
-  // Konfirmasi dulu
-  if(!confirm('Generate slip gaji untuk semua karyawan aktif? Proses ini akan mengubah data periode ini.')) return;
+  if(!confirm('Generate slip gaji untuk semua karyawan aktif?')) return;
 
-  // Disable tombol biar tidak dobel klik
   const btns = document.querySelectorAll('button');
   btns.forEach(b => b.disabled = true);
-
   showToast('Memproses slip gaji…');
 
   try {
-    const [emps, components] = await Promise.all([
+    const [emps, components, overtimeReqs] = await Promise.all([
       sbAll('employees', {eq:{employment_status:'active'}}),
-      sbAll('payroll_components')
+      sbAll('payroll_components'),
+      sbAll('overtime_requests', {eq:{status:'approved'}})
     ]);
 
-    if(!emps.length){ 
-      showToast('Tidak ada karyawan aktif.', true); 
-      return;
-    }
+    if(!emps.length){ showToast('Tidak ada karyawan aktif.', true); return; }
 
     const earnings = components.filter(c => c.component_type === 'earning');
     const deductions = components.filter(c => c.component_type === 'deduction');
 
-    // === BANGUN SEMUA PAYLOAD DI MEMORI (tanpa request ke server) ===
+    // Ambil bulan payroll untuk filter overtime
+    const runs = await sbAll('payroll_runs', {eq:{id: runId}});
+    const run = runs[0];
+    const periodeMonth = run ? run.period_month : null;
+    const periodeYear = run ? run.period_year : null;
+
     const allPayloads = [];
 
     for(const e of emps){
@@ -1281,16 +1592,28 @@ async function generatePayslips(runId){
         totalTunjangan += amt;
       });
 
-      // 3. BPJS Karyawan
+      // 3. Lembur yang sudah approved bulan ini
+      const myOvertime = overtimeReqs.filter(o => {
+        if(o.employee_id !== e.id) return false;
+        const d = new Date(o.overtime_date);
+        return d.getMonth() + 1 === periodeMonth && d.getFullYear() === periodeYear;
+      });
+      const totalLembur = myOvertime.reduce((s,o) => s + (Number(o.amount)||0), 0);
+      if(totalLembur > 0){
+        details.push({ name: 'Upah Lembur', amount: totalLembur, type:'earning' });
+        totalEarn += totalLembur;
+      }
+
+      // 4. BPJS
       const bpjsKesehatan = Math.min(gajiPokok, BPJS_CAP_KESEHATAN) * 0.01;
       const bpjsJHT       = gajiPokok * 0.02;
       const bpjsJP        = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01;
 
-      // 4. PPh 21
+      // 5. PPh 21 (dengan lembur jadi bagian bruto)
       const ptkpKey = e.ptkp_status || 'TK/0';
-      const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan, ptkpKey);
+      const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan + totalLembur, ptkpKey);
 
-      // 5. Potongan
+      // 6. Potongan
       let totalDed = 0;
       deductions.forEach(comp => {
         let amt = 0;
@@ -1317,6 +1640,17 @@ async function generatePayslips(runId){
         details
       });
     }
+
+    const { error } = await sb.from('payslips').upsert(allPayloads, { onConflict: 'payroll_run_id,employee_id' });
+    if(error){ showToast('Gagal generate: ' + error.message, true); return; }
+
+    await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
+    showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`);
+    renderPayroll();
+  } finally {
+    btns.forEach(b => b.disabled = false);
+  }
+}
 
     // === UPSERT SEMUA SEKALIGUS (1 REQUEST untuk 100 karyawan) ===
     const { error } = await sb
@@ -1593,10 +1927,130 @@ const STAGES = ['applied','screening','interview','offer','hired','rejected'];
 async function viewCandidates(jobId, title){
   const candidates = await sbAll('candidates', {eq:{job_posting_id: jobId}, order:{col:'applied_at', asc:false}});
   el('candidate-area').innerHTML = `<div class="toolbar"><h3 style="margin:0;">Kandidat — ${title}</h3><button class="btn btn-primary btn-sm" onclick="openCandidateForm('${jobId}')">+ Tambah Kandidat</button></div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Nama</th><th>Kontak</th><th>Tahap</th></tr></thead>
-    <tbody>${candidates.map(c=>`<tr><td>${escapeHtml(c.full_name)}</td><td>${escapeHtml(c.email||c.phone||'-')}</td>
+    <div class="card" style="padding:0;"><table><thead><tr><th>Nama</th><th>Kontak</th><th>Tahap</th><th></th></tr></thead>
+    <tbody>${candidates.map(c=>`<tr>
+      <td>${escapeHtml(c.full_name)}${c.converted_employee_id ? ' <span class="badge badge-success" style="margin-left:6px;">✓ Dikonversi</span>' : ''}</td>
+      <td>${escapeHtml(c.email||c.phone||'-')}</td>
       <td><select onchange="updateCandidateStage('${c.id}', this.value, '${jobId}', '${title.replace(/'/g,"\\'")}')">${STAGES.map(s=>`<option value="${s}" ${c.stage===s?'selected':''}>${s}</option>`).join('')}</select></td>
-    </tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada kandidat.</td></tr>'}</tbody></table></div>`;
+      <td style="text-align:right;">
+        ${c.stage === 'hired' && !c.converted_employee_id 
+          ? `<button class="btn btn-primary btn-sm" onclick='openConvertForm(${JSON.stringify(c).replace(/'/g,"&apos;")})'>🎉 Konversi ke Karyawan</button>` 
+          : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Belum ada kandidat.</td></tr>'}</tbody></table></div>`;
+}
+
+// =====================================================================
+// KONVERSI CANDIDATE → EMPLOYEE
+// =====================================================================
+function openConvertForm(candidate){
+  const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  const now = new Date();
+  const suggestedCode = 'EMP' + String(Date.now()).slice(-6);
+
+  openModal(`
+    <h3>Konversi Kandidat ke Karyawan</h3>
+    <div style="background:#E9F5EE;padding:12px;border-radius:8px;font-size:13px;margin-bottom:16px;">
+      <b>${escapeHtml(candidate.full_name)}</b><br>
+      ${escapeHtml(candidate.email || candidate.phone || '-')}
+    </div>
+    
+    <div class="field"><label>Kode Karyawan</label><input id="cv-code" value="${suggestedCode}"></div>
+    <div class="field"><label>Nama Lengkap</label><input id="cv-name" value="${escapeHtml(candidate.full_name)}"></div>
+    <div class="field"><label>Email</label><input id="cv-email" value="${escapeHtml(candidate.email||'')}"></div>
+    <div class="field"><label>Telepon</label><input id="cv-phone" value="${escapeHtml(candidate.phone||'')}"></div>
+    
+    <div class="field"><label>Departemen</label><select id="cv-dept">${deptOpts}</select></div>
+    <div class="field"><label>Jabatan</label><select id="cv-pos"><option value="">- Pilih Departemen dahulu -</option></select></div>
+    
+    <div class="field"><label>Tanggal Bergabung</label><input id="cv-join" type="date" value="${now.toISOString().slice(0,10)}"></div>
+    <div class="field"><label>Gaji Pokok</label><input id="cv-salary" type="text" oninput="formatNumberInput(this)" value="0"></div>
+    <div class="field"><label>Status PTKP</label>
+      <select id="cv-ptkp">${['TK/0','TK/1','TK/2','TK/3','K/0','K/1','K/2','K/3'].map(p=>`<option value="${p}">${p}</option>`).join('')}</select>
+    </div>
+    
+    <div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;font-size:12px;color:var(--text-muted);margin:12px 0;">
+      ℹ️ Setelah konversi:<br>
+      • Karyawan baru dibuat di database<br>
+      • Onboarding checklist otomatis dimulai<br>
+      • Kandidat ditandai "sudah dikonversi"
+    </div>
+    
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="convertCandidate('${candidate.id}', '${candidate.applicant_id||''}')">Konversi Sekarang</button>
+    </div>`);
+  
+  // Set dept change handler
+  el('cv-dept').addEventListener('change', function(){
+    const deptId = this.value;
+    const filtered = CACHE.positions.filter(p => p.department_id === deptId);
+    el('cv-pos').innerHTML = '<option value="">- Pilih Jabatan -</option>' + 
+      filtered.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  });
+}
+
+async function convertCandidate(candidateId, applicantId){
+  const empData = {
+    employee_code: el('cv-code').value.trim(),
+    full_name: el('cv-name').value.trim(),
+    email: el('cv-email').value.trim() || null,
+    phone: el('cv-phone').value.trim() || null,
+    department_id: el('cv-dept').value || null,
+    position_id: el('cv-pos').value || null,
+    join_date: el('cv-join').value,
+    basic_salary: Number(el('cv-salary').value.replace(/\./g,'')) || 0,
+    ptkp_status: el('cv-ptkp').value,
+    employment_status: 'probation'
+  };
+
+  if(!empData.employee_code || !empData.full_name){ showToast('Kode & nama wajib diisi.', true); return; }
+
+  // 1. Insert employee
+  const { data: newEmp, error: empErr } = await sb.from('employees').insert(empData).select().single();
+  if(empErr){ showToast('Gagal buat karyawan: ' + empErr.message, true); return; }
+
+  // 2. Update candidate.converted_employee_id
+  await sb.from('candidates').update({ converted_employee_id: newEmp.id }).eq('id', candidateId);
+
+  // 3. Kalau applicant punya akun (auth.users), tautkan ke profile
+  if(applicantId){
+    const { data: existingProfile } = await sb.from('profiles').select('*').eq('id', applicantId).maybeSingle();
+    if(existingProfile){
+      await sb.from('profiles').update({ 
+        employee_id: newEmp.id,
+        role: 'employee'
+      }).eq('id', applicantId);
+    }
+  }
+
+  // 4. Mulai onboarding otomatis
+  const templates = await sbAll('onboarding_templates', {eq:{is_active:true}});
+  if(templates.length){
+    const template = templates[0];
+    const items = await sbAll('onboarding_template_items', {eq:{template_id: template.id}, order:{col:'order_index'}});
+    
+    const { data: newOnb } = await sb.from('onboardings').insert({
+      employee_id: newEmp.id,
+      template_id: template.id,
+      started_date: new Date().toISOString().slice(0,10),
+      status: 'in_progress'
+    }).select().single();
+
+    if(newOnb && items.length){
+      await sb.from('onboarding_items').insert(items.map(it => ({
+        onboarding_id: newOnb.id,
+        task_name: it.task_name,
+        owner_role: it.owner_role,
+        due_date: new Date(Date.now() + it.due_days * 86400000).toISOString().slice(0,10),
+        is_done: false
+      })));
+    }
+  }
+
+  showToast(`✅ ${empData.full_name} berhasil dikonversi jadi karyawan!`);
+  closeModal();
+  renderRecruitment();
 }
 function openCandidateForm(jobId){
   openModal(`<h3>Tambah Kandidat</h3>
@@ -1677,7 +2131,310 @@ async function saveReview(cycleId, employeeId){
   if(error){ showToast(error.message, true); return; }
   showToast('Penilaian disimpan.'); closeModal(); renderPerformance();
 }
+// =====================================================================
+// MODUL: ONBOARDING (HR)
+// =====================================================================
+async function renderOnboardingList(){
+  const c = el('content');
+  const [onboards, emps] = await Promise.all([
+    sbAll('onboardings', {order:{col:'created_at', asc:false}}),
+    sbAll('employees', {select:'*, departments(name), positions(name)'})
+  ]);
 
+  const inProgress = onboards.filter(o=>o.status==='in_progress').length;
+  const completed = onboards.filter(o=>o.status==='completed').length;
+
+  c.innerHTML = `
+    <div class="toolbar">
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline" onclick="navigate('onboarding-templates')">📋 Kelola Template</button>
+      </div>
+      <button class="btn btn-primary" onclick="openStartOnboardingForm()">+ Mulai Onboarding</button>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom:18px;">
+      <div class="stat-card"><div class="stat-num">${onboards.length}</div><div class="stat-label">Total Onboarding</div></div>
+      <div class="stat-card"><div class="stat-num">${inProgress}</div><div class="stat-label">Sedang Berjalan</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--accent-dark);">${completed}</div><div class="stat-label">Selesai</div></div>
+    </div>
+
+    <div class="card" style="padding:0;">
+      <table><thead><tr>
+        <th>Karyawan</th><th>Mulai</th><th>Progress</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>${onboards.map(o=>{
+        const e = emps.find(x=>x.id===o.employee_id);
+        return `<tr>
+          <td><b>${escapeHtml(e?e.full_name:'-')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e?.positions?.name||'')}</span></td>
+          <td>${fmtDate(o.started_date)}</td>
+          <td>${o.completed_date ? '100%' : '<span style="color:var(--text-muted);">In Progress</span>'}</td>
+          <td>${statusBadge(o.status === 'in_progress' ? 'submitted' : 'completed')}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-outline btn-sm" onclick="viewOnboarding('${o.id}')">Kelola</button>
+          </td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada onboarding. Klik "+ Mulai Onboarding" untuk memulai.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+function openStartOnboardingForm(){
+  const emps = CACHE.employees || [];
+  openModal(`
+    <h3>Mulai Onboarding</h3>
+    <div class="field"><label>Karyawan</label>
+      <select id="ob-emp">
+        <option value="">- Pilih Karyawan -</option>
+        ${emps.filter(e=>e.employment_status==='active'||e.employment_status==='probation').map(e=>`<option value="${e.id}">${escapeHtml(e.full_name)}</option>`).join('')}
+      </select>
+    </div>
+    <div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;font-size:12px;color:var(--text-muted);margin-bottom:12px;">
+      Template default akan otomatis di-apply. Anda dapat menambah/menghapus item setelahnya.
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="startOnboarding()">Mulai</button>
+    </div>`);
+}
+
+async function startOnboarding(){
+  const empId = el('ob-emp').value;
+  if(!empId){ showToast('Pilih karyawan.', true); return; }
+
+  // Ambil template default + items
+  const templates = await sbAll('onboarding_templates', {eq:{is_active:true}});
+  const template = templates[0];
+  if(!template){ showToast('Template onboarding belum ada. Buat template dulu.', true); return; }
+
+  const items = await sbAll('onboarding_template_items', {eq:{template_id: template.id}, order:{col:'order_index'}});
+
+  // Insert onboarding
+  const { data: newOnb, error: onbErr } = await sb.from('onboardings').insert({
+    employee_id: empId,
+    template_id: template.id,
+    started_date: new Date().toISOString().slice(0,10),
+    status: 'in_progress'
+  }).select().single();
+
+  if(onbErr){ showToast(onbErr.message, true); return; }
+
+  // Insert items dari template
+  const itemsPayload = items.map(it => ({
+    onboarding_id: newOnb.id,
+    task_name: it.task_name,
+    owner_role: it.owner_role,
+    due_date: new Date(Date.now() + it.due_days * 86400000).toISOString().slice(0,10),
+    is_done: false
+  }));
+
+  if(itemsPayload.length){
+    const { error: itemsErr } = await sb.from('onboarding_items').insert(itemsPayload);
+    if(itemsErr){ showToast(itemsErr.message, true); return; }
+  }
+
+  showToast('Onboarding dimulai.');
+  closeModal();
+  renderOnboardingList();
+}
+
+async function viewOnboarding(onboardingId){
+  const [onbs, items, emps] = await Promise.all([
+    sbAll('onboardings', {eq:{id: onboardingId}}),
+    sbAll('onboarding_items', {eq:{onboarding_id: onboardingId}, order:{col:'due_date'}}),
+    sbAll('employees')
+  ]);
+  const onb = onbs[0];
+  if(!onb){ showToast('Data tidak ditemukan.', true); return; }
+  const emp = emps.find(e=>e.id===onb.employee_id);
+  const done = items.filter(i=>i.is_done).length;
+  const progress = items.length ? Math.round(done / items.length * 100) : 0;
+
+  openModal(`
+    <h3>Onboarding — ${escapeHtml(emp?.full_name || '-')}</h3>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+      <div style="flex:1;background:#EFEDE3;border-radius:20px;height:10px;overflow:hidden;">
+        <div style="width:${progress}%;background:linear-gradient(90deg,var(--accent),var(--accent-dark));height:100%;"></div>
+      </div>
+      <div style="font-weight:700;font-size:14px;color:var(--accent-dark);">${progress}%</div>
+    </div>
+    <div style="max-height:400px;overflow-y:auto;margin-bottom:16px;">
+      ${items.map(it => `
+        <div style="display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--border);align-items:flex-start;">
+          <input type="checkbox" ${it.is_done?'checked':''} onchange="toggleOnboardingItem('${it.id}', this.checked, '${onboardingId}')" style="width:auto;margin-top:4px;">
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:13.5px;${it.is_done?'color:var(--text-muted);text-decoration:line-through;':''}">${escapeHtml(it.task_name)}</div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">
+              ${it.owner_role ? `👤 ${it.owner_role.toUpperCase()} • ` : ''}📅 Due ${fmtDate(it.due_date)}
+            </div>
+          </div>
+        </div>
+      `).join('') || '<div class="empty-state">Belum ada item.</div>'}
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
+      ${progress === 100 && onb.status !== 'completed' ? `<button class="btn btn-primary" onclick="completeOnboarding('${onboardingId}')">Tandai Selesai</button>` : ''}
+    </div>`);
+}
+
+async function toggleOnboardingItem(itemId, checked, onboardingId){
+  const { error } = await sb.from('onboarding_items').update({
+    is_done: checked,
+    done_at: checked ? new Date().toISOString() : null,
+    done_by: PROFILE.employee_id || null
+  }).eq('id', itemId);
+  if(error){ showToast(error.message, true); return; }
+  closeModal();
+  viewOnboarding(onboardingId);
+}
+
+async function completeOnboarding(onboardingId){
+  const { error } = await sb.from('onboardings').update({
+    status: 'completed',
+    completed_date: new Date().toISOString().slice(0,10)
+  }).eq('id', onboardingId);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Onboarding selesai.');
+  closeModal();
+  renderOnboardingList();
+}
+
+// =====================================================================
+// MODUL: ONBOARDING — EMPLOYEE VIEW (My Onboarding)
+// =====================================================================
+async function renderMyOnboarding(){
+  const c = el('content');
+  if(!ME){ c.innerHTML = '<div class="empty-state">Akun belum ditautkan ke data karyawan.</div>'; return; }
+
+  const onbs = await sbAll('onboardings', {eq:{employee_id: ME.id}, order:{col:'created_at', asc:false}});
+  if(!onbs.length){
+    c.innerHTML = '<div class="card"><div class="empty-state">Belum ada onboarding aktif untuk Anda. Hubungi HR.</div></div>';
+    return;
+  }
+  const onb = onbs[0];
+  const items = await sbAll('onboarding_items', {eq:{onboarding_id: onb.id}, order:{col:'due_date'}});
+  const done = items.filter(i=>i.is_done).length;
+  const progress = items.length ? Math.round(done / items.length * 100) : 0;
+
+  c.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="margin-top:0;">Onboarding Saya</h3>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:12px;">
+        <div style="flex:1;background:#EFEDE3;border-radius:20px;height:10px;overflow:hidden;">
+          <div style="width:${progress}%;background:linear-gradient(90deg,var(--accent),var(--accent-dark));height:100%;"></div>
+        </div>
+        <div style="font-weight:700;font-size:14px;color:var(--accent-dark);">${done}/${items.length}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">Mulai ${fmtDate(onb.started_date)}</div>
+    </div>
+    <div class="card" style="padding:0;">
+      ${items.map(it => `
+        <div style="display:flex;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border);align-items:flex-start;">
+          <div style="width:24px;height:24px;border-radius:50%;background:${it.is_done?'var(--success-bg)':'#EFEDE3'};color:${it.is_done?'var(--success)':'var(--text-muted)'};display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;font-size:12px;">
+            ${it.is_done ? '✓' : '•'}
+          </div>
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:13.5px;${it.is_done?'color:var(--text-muted);text-decoration:line-through;':''}">${escapeHtml(it.task_name)}</div>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:3px;">
+              ${it.owner_role ? `Dikerjakan oleh: <b>${it.owner_role.toUpperCase()}</b> • ` : ''}📅 ${fmtDate(it.due_date)}
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+// =====================================================================
+// MODUL: ONBOARDING TEMPLATES (HR)
+// =====================================================================
+async function renderOnboardingTemplates(){
+  const c = el('content');
+  const [templates, items] = await Promise.all([
+    sbAll('onboarding_templates', {order:{col:'name'}}),
+    sbAll('onboarding_template_items', {order:{col:'order_index'}})
+  ]);
+
+  c.innerHTML = `
+    <div class="toolbar">
+      <button class="btn btn-outline" onclick="navigate('onboarding')">← Kembali</button>
+      <button class="btn btn-primary" onclick="openTemplateForm()">+ Template Baru</button>
+    </div>
+    ${templates.map(t=>{
+      const tItems = items.filter(i=>i.template_id===t.id);
+      return `<div class="card" style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:700;font-size:15px;">${escapeHtml(t.name)}</div>
+            <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px;">${tItems.length} task</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" onclick='openTemplateItemForm("${t.id}")'>+ Tambah Task</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTemplate('${t.id}')">Hapus</button>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          ${tItems.map(i=>`
+            <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed var(--border);font-size:13px;">
+              <span>${escapeHtml(i.task_name)}</span>
+              <span style="color:var(--text-muted);font-size:11.5px;">${i.owner_role.toUpperCase()} • ${i.due_days} hari</span>
+            </div>
+          `).join('') || '<div style="padding:10px;color:var(--text-muted);font-size:12.5px;">Belum ada task.</div>'}
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function openTemplateForm(){
+  openModal(`
+    <h3>Template Baru</h3>
+    <div class="field"><label>Nama Template</label><input id="tpl-name" placeholder="Contoh: Onboarding IT Support"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveTemplate()">Simpan</button>
+    </div>`);
+}
+async function saveTemplate(){
+  const name = el('tpl-name').value.trim();
+  if(!name){ showToast('Nama wajib diisi.', true); return; }
+  const { error } = await sb.from('onboarding_templates').insert({ name });
+  if(error){ showToast(error.message, true); return; }
+  showToast('Template dibuat.'); closeModal(); renderOnboardingTemplates();
+}
+
+function openTemplateItemForm(templateId){
+  openModal(`
+    <h3>Tambah Task</h3>
+    <div class="field"><label>Nama Task</label><input id="ti-name" placeholder="Contoh: Setup akun email"></div>
+    <div class="field"><label>Owner</label>
+      <select id="ti-owner">
+        <option value="hr">HR</option>
+        <option value="it">IT</option>
+        <option value="finance">Finance</option>
+        <option value="manager">Manager</option>
+        <option value="employee">Karyawan</option>
+      </select>
+    </div>
+    <div class="field"><label>Target Selesai (hari)</label><input id="ti-days" type="number" value="7"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+      <button class="btn btn-primary" onclick="saveTemplateItem('${templateId}')">Simpan</button>
+    </div>`);
+}
+async function saveTemplateItem(templateId){
+  const { error } = await sb.from('onboarding_template_items').insert({
+    template_id: templateId,
+    task_name: el('ti-name').value.trim(),
+    owner_role: el('ti-owner').value,
+    due_days: Number(el('ti-days').value) || 7
+  });
+  if(error){ showToast(error.message, true); return; }
+  showToast('Task ditambahkan.'); closeModal(); renderOnboardingTemplates();
+}
+
+async function deleteTemplate(id){
+  if(!confirm('Hapus template ini? Item di dalamnya akan ikut terhapus.')) return;
+  const { error } = await sb.from('onboarding_templates').delete().eq('id', id);
+  if(error){ showToast(error.message, true); return; }
+  showToast('Template dihapus.'); renderOnboardingTemplates();
+}
 // =====================================================================
 // MODUL: TRAINING & DEVELOPMENT (dipakai HR & employee)
 // =====================================================================
