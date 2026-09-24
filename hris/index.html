@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="module" src="../src/main.js"></script>
 <style>
   :root{
@@ -170,6 +171,15 @@
     .content{padding:0;}
     .emp-detail-header{border:none;}
   }
+</style>
+<style>
+@media print {
+  .report-controls, #nav-container, .sidebar, .topbar, .sidebar-footer, #modal-root, #toast-root { display:none !important; }
+  .report-print-header { display:block !important; }
+  .report-table { font-size:11px !important; }
+  .report-table th, .report-table td { padding:5px 6px !important; }
+}
+.report-print-header { display:none; }
 </style>
 </head>
 <body>
