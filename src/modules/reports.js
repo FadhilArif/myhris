@@ -23,6 +23,9 @@ const REPORT_META = {
 let currentRows = [];
 let currentHeaders = [];
 let currentReportKey = '';
+let currentReportTitle = '';
+let currentReportDescription = '';
+let currentExcelSheets = [];
 
 function isWithinRange(dateValue, start, end){
   if(!dateValue) return true;
@@ -103,7 +106,7 @@ export async function renderReports(initialType = ''){
           '<button class="btn btn-primary" onclick="loadReport()">Tampilkan</button>' +
           '<button class="btn btn-outline" onclick="downloadCurrentReportCSV()">CSV</button>' +
           '<button class="btn btn-outline" onclick="exportCurrentReportExcel()">Excel</button>' +
-          '<button class="btn btn-outline" onclick="printCurrentReport()">PDF / Cetak</button>' +
+          '<button class="btn btn-outline" onclick="downloadCurrentReportPDF()">Download PDF</button>' +
         '</div>' +
       '</div>' +
       '<div id="report-scope-note" style="font-size:12px;color:var(--text-muted);margin-top:10px;"></div>' +
@@ -132,7 +135,10 @@ export async function loadReport(){
     const result = await buildReport(key, start, end, employeeId);
     currentHeaders = result.headers;
     currentRows = result.rows;
-    renderReportTable(result.title, result.description, result.headers, result.rows);
+    currentReportTitle = result.title;
+    currentReportDescription = result.description;
+    currentExcelSheets = result.extraSheets || [];
+    renderReportTable(result.title, result.description, result.headers, result.rows, result.extraNote || '');
   } catch(e){
     console.error(e);
     area.innerHTML = '<div class="card"><b>Gagal memuat laporan.</b><div style="margin-top:6px;color:var(--text-muted);">' + escapeHtml(e.message || 'Unknown error') + '</div></div>';
@@ -243,26 +249,63 @@ async function reportPayroll(start,end,employeeId = ''){
     getScopedEmployees(employeeId),
     sbAll('payslips')
   ]);
+
   const em=new Map(emps.map(e=>[e.id,e]));
   const runMap=new Map(runs.map(r=>[r.id,r]));
   const rows=[];
+  const componentRows=[];
+
   payslips.filter(p=>em.has(p.employee_id)).forEach(p=>{
     const run=runMap.get(p.payroll_run_id);
     if(!run) return;
+
     const periodKey=String(run.period_year)+'-'+String(run.period_month).padStart(2,'0')+'-01';
     if(!isWithinRange(periodKey,start,end)) return;
+
     const e=em.get(p.employee_id);
+
     let details=[];
-    try { details=Array.isArray(p.details)?p.details:JSON.parse(p.details||'[]'); } catch(_){}
-    const detailText=details.map(d=>d.name+': '+fmtMoney(d.amount)).join(' | ');
+    try {
+      details=Array.isArray(p.details) ? p.details : JSON.parse(p.details || '[]');
+      if(!Array.isArray(details)) details=[];
+    } catch(_){ details=[]; }
+
     rows.push([
       String(run.period_month).padStart(2,'0')+'/'+run.period_year,
-      e.employee_code||'',e.full_name||'',e.departments?.name||'',
-      Number(p.basic_salary||0),Number(p.total_earnings||0),Number(p.total_deductions||0),Number(p.net_salary||0),detailText
+      run.status || '-',
+      e.employee_code||'',
+      e.full_name||'',
+      e.departments?.name||'',
+      Number(p.basic_salary||0),
+      Number(p.total_earnings||0),
+      Number(p.total_deductions||0),
+      Number(p.net_salary||0)
     ]);
+
+    details.forEach(d=>{
+      componentRows.push([
+        String(run.period_month).padStart(2,'0')+'/'+run.period_year,
+        e.employee_code||'',
+        e.full_name||'',
+        d.name || '-',
+        d.type || '-',
+        Number(d.amount || 0)
+      ]);
+    });
   });
-  const headers=['Periode','Kode','Karyawan','Departemen','Gaji Pokok','Total Pendapatan','Total Potongan','Take Home Pay','Rincian Komponen'];
-  return {title:REPORT_META.payroll.title,description:REPORT_META.payroll.description,headers,rows};
+
+  return {
+    title:REPORT_META.payroll.title,
+    description:REPORT_META.payroll.description,
+    headers:['Periode','Status Payroll','Kode','Karyawan','Departemen','Gaji Pokok','Total Pendapatan','Total Potongan','Take Home Pay'],
+    rows,
+    extraNote:'Rincian komponen slip dipisahkan ke sheet "Rincian Komponen" saat export Excel dan halaman kedua PDF.',
+    extraSheets:[{
+      name:'Rincian Komponen',
+      headers:['Periode','Kode','Karyawan','Komponen','Tipe','Nominal'],
+      rows:componentRows
+    }]
+  };
 }
 
 async function reportRecruitment(start,end){
@@ -346,7 +389,7 @@ export function updateReportScopeNote(){
   }
 }
 
-function renderReportTable(title,description,headers,rows){
+function renderReportTable(title,description,headers,rows,extraNote=''){
   const area=el('report-area');
   if(!area) return;
   const head='<thead><tr>'+headers.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>';
@@ -362,6 +405,7 @@ function renderReportTable(title,description,headers,rows){
         '<div style="font-size:12px;color:#666;margin-top:3px;">'+escapeHtml(description)+'</div>' +
       '</div>' +
       '<div class="toolbar report-controls" style="margin-bottom:10px;"><span style="font-size:12.5px;color:var(--text-muted);">'+rows.length+' baris data</span></div>' +
+      (extraNote ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">'+escapeHtml(extraNote)+'</div>' : '') +
       '<div style="overflow:auto;"><table class="report-table">'+head+body+'</table></div>' +
     '</div>';
 }
@@ -411,16 +455,16 @@ export function downloadCurrentReportPDF(){
   }
 
   const doc = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
-  const title = 'My HRIS — ' + (REPORT_META[currentReportKey]?.title || currentReportKey);
-  doc.setFontSize(14);
-  doc.text(title, 32, 32);
-  doc.setFontSize(8);
-  doc.text('Dibuat: ' + new Date().toLocaleString('id-ID'), 32, 46);
-
-  const body = currentRows.map(row => currentHeaders.map((_,i) => {
-    const value = row[i] ?? '';
+  const body = currentRows.map(row => currentHeaders.map((_,i)=>{
+    const value=row[i] ?? '';
     return typeof value === 'number' ? value.toLocaleString('id-ID') : String(value);
   }));
+
+  doc.setFontSize(14);
+  doc.text(currentReportTitle || ('My HRIS — '+currentReportKey), 32, 32);
+  doc.setFontSize(8);
+  doc.text('Dibuat: '+new Date().toLocaleString('id-ID'), 32, 46);
+  doc.text(currentReportDescription || '', 32, 58);
 
   if(typeof doc.autoTable !== 'function'){
     showToast('Plugin tabel PDF belum termuat. Gunakan PDF / Cetak.', true);
@@ -429,22 +473,38 @@ export function downloadCurrentReportPDF(){
   }
 
   doc.autoTable({
-    head: [currentHeaders],
+    head:[currentHeaders],
     body,
-    startY: 58,
-    styles: {fontSize: 6.5, cellPadding: 3, overflow: 'linebreak'},
-    headStyles: {fontSize: 7},
-    margin: {left: 24, right: 24, top: 24, bottom: 24},
-    didDrawPage: function(){
-      const pageCount = doc.internal.getNumberOfPages();
-      const page = doc.internal.getCurrentPageInfo().pageNumber;
-      doc.setFontSize(7);
-      doc.text('Halaman ' + page + ' / ' + pageCount, 760, 560);
-    }
+    startY:72,
+    theme:'grid',
+    styles:{fontSize:6.5,cellPadding:3,overflow:'linebreak',valign:'middle'},
+    headStyles:{fontSize:7},
+    margin:{left:24,right:24,top:24,bottom:28}
   });
 
-  const stamp = new Date().toISOString().slice(0,10);
-  doc.save('MyHRIS_' + currentReportKey + '_' + stamp + '.pdf');
+  for(const sheet of currentExcelSheets){
+    doc.addPage('landscape');
+    doc.setFontSize(12);
+    doc.text(sheet.name || 'Detail Laporan', 32, 32);
+
+    const detailBody=sheet.rows.map(row=>sheet.headers.map((_,i)=>{
+      const value=row[i] ?? '';
+      return typeof value==='number' ? value.toLocaleString('id-ID') : String(value);
+    }));
+
+    doc.autoTable({
+      head:[sheet.headers],
+      body:detailBody,
+      startY:50,
+      theme:'grid',
+      styles:{fontSize:7,cellPadding:3,overflow:'linebreak'},
+      headStyles:{fontSize:7},
+      margin:{left:24,right:24,top:24,bottom:24}
+    });
+  }
+
+  const stamp=new Date().toISOString().slice(0,10);
+  doc.save('MyHRIS_'+currentReportKey+'_'+stamp+'.pdf');
   showToast('PDF berhasil diunduh.');
 }
 
@@ -459,16 +519,31 @@ export async function exportCurrentReportExcel(){
     return;
   }
 
-  const data=currentRows.map(row=>{
+  const wb=window.XLSX.utils.book_new();
+
+  const mainData=currentRows.map(row=>{
     const obj={};
     currentHeaders.forEach((h,i)=>obj[h]=row[i] ?? '');
     return obj;
   });
-  const wb=window.XLSX.utils.book_new();
-  const ws=window.XLSX.utils.json_to_sheet(data);
-  window.XLSX.utils.book_append_sheet(wb,ws,'Laporan');
+  window.XLSX.utils.book_append_sheet(wb,window.XLSX.utils.json_to_sheet(mainData),'Laporan');
+
+  for(const sheet of currentExcelSheets){
+    const data=sheet.rows.map(row=>{
+      const obj={};
+      sheet.headers.forEach((h,i)=>obj[h]=row[i] ?? '');
+      return obj;
+    });
+    window.XLSX.utils.book_append_sheet(
+      wb,
+      window.XLSX.utils.json_to_sheet(data),
+      (sheet.name || 'Detail').slice(0,31)
+    );
+  }
+
   const stamp=new Date().toISOString().slice(0,10);
   window.XLSX.writeFile(wb,'MyHRIS_'+currentReportKey+'_'+stamp+'.xlsx');
+  showToast('Excel berhasil diunduh.');
 }
 
 export function printCurrentReport(){
