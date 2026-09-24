@@ -104,7 +104,9 @@ Object.assign(window, {
   ...ClaimsMod,
   ...DirectoryMod,
   ...SettingsMod,
-  ...EmployeeDetailMod
+  ...EmployeeDetailMod,
+  ...TeamMod,
+  ...ReportsMod
 });
 
 
