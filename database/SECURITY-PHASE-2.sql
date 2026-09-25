@@ -527,7 +527,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_updated boolean := false;
+  v_row_count integer := 0;
 begin
   if auth.uid() is null or not public.has_permission('settings.manage') then
     raise exception 'Not authorized';
@@ -571,8 +571,8 @@ begin
       raise exception 'Unsupported table';
   end case;
 
-  get diagnostics v_updated = row_count > 0;
-  return v_updated;
+  get diagnostics v_row_count = row_count;
+  return v_row_count > 0;
 end;
 $$;
 
