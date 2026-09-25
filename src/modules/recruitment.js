@@ -1,10 +1,49 @@
 import { sb } from '../lib/supabase.js';
-import { state, CACHE, isHR } from '../state/store.js';
+import { CACHE } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { logAudit } from '../services/audit.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
-import { fmtDate, formatNumberInput } from '../utils/format.js';
-import { STAGES } from '../config/constants.js';
+import { formatNumberInput } from '../utils/format.js';
+import { STAGES, STAGE_LABELS } from '../config/constants.js';
+
+const WORK_SYSTEM_LABELS = {
+  on_site: 'On-site',
+  hybrid: 'Hybrid',
+  remote: 'Remote'
+};
+
+function formatMoney(value){
+  const n = Number(value);
+  if(!Number.isFinite(n) || n <= 0) return '-';
+  return 'Rp ' + n.toLocaleString('id-ID');
+}
+
+function formatMoneyInput(value){
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n.toLocaleString('id-ID') : '';
+}
+
+function parseMoneyInput(value){
+  const raw = String(value || '').replace(/\D/g, '');
+  if(!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatListText(value){
+  return escapeHtml(value || '-').replace(/\n/g, '<br>');
+}
+
+function jobSummary(j){
+  const salary = j.salary_min || j.salary_max
+    ? `${formatMoney(j.salary_min)}${j.salary_max ? ' — ' + formatMoney(j.salary_max) : ''}`
+    : 'Gaji dibicarakan';
+  return {
+    placement: j.placement || 'Tidak disebutkan',
+    workSystem: WORK_SYSTEM_LABELS[j.work_system] || j.work_system || 'Tidak disebutkan',
+    salary
+  };
+}
 
 export async function renderRecruitment(){
   const c = el('content');
@@ -13,26 +52,52 @@ export async function renderRecruitment(){
     sbAll('departments')
   ]);
 
-  c.innerHTML = `<div class="toolbar"><span></span>
+  c.innerHTML = `<div class="toolbar" style="gap:8px;flex-wrap:wrap;">
+      <span style="flex:1;"></span>
       <button class="btn btn-outline" onclick="openCareerPage()">↗ Buka Halaman Karir</button>
       <button class="btn btn-outline" onclick="copyCareerPageLink()">🔗 Salin Link Halaman Karir</button>
       <button class="btn btn-primary" onclick="openJobForm()">+ Buka Lowongan</button>
     </div>
-    <div class="grid grid-2">${jobs.map(j=>`
+    <div class="grid grid-2">${jobs.map(j=>{
+      const summary = jobSummary(j);
+      return `
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:start;">
-          <div><b>${escapeHtml(j.title)}</b><div style="font-size:12px;color:var(--text-muted);">${escapeHtml(depts.find(d=>d.id===j.department_id)?.name||'-')}</div></div>
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;">
+          <div>
+            <b style="font-size:15px;">${escapeHtml(j.title)}</b>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">${escapeHtml(depts.find(d=>d.id===j.department_id)?.name||'Umum')}</div>
+          </div>
           ${statusBadge(j.status)}
         </div>
-        <p style="font-size:13px;color:var(--text-muted);">${escapeHtml(j.description||'')}</p>
+
+        <p style="font-size:13px;color:var(--text-muted);line-height:1.5;">${escapeHtml(j.description||'')}</p>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;">
+          <div style="background:#FAFAF6;border-radius:8px;padding:9px;">
+            <div style="font-size:11px;color:var(--text-muted);">Penempatan</div>
+            <b style="font-size:12.5px;">${escapeHtml(summary.placement)}</b>
+          </div>
+          <div style="background:#FAFAF6;border-radius:8px;padding:9px;">
+            <div style="font-size:11px;color:var(--text-muted);">Sistem Kerja</div>
+            <b style="font-size:12.5px;">${escapeHtml(summary.workSystem)}</b>
+          </div>
+          <div style="background:#FAFAF6;border-radius:8px;padding:9px;grid-column:1/-1;">
+            <div style="font-size:11px;color:var(--text-muted);">Kisaran Gaji</div>
+            <b style="font-size:12.5px;">${escapeHtml(summary.salary)}</b>
+          </div>
+        </div>
+
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" onclick='viewJobDetails(${JSON.stringify(j.id)})'>Detail</button>
+          <button class="btn btn-outline btn-sm" onclick='editJobForm(${JSON.stringify(j.id)})'>Edit</button>
           <button class="btn btn-outline btn-sm" onclick='viewCandidates(${JSON.stringify(j.id)}, ${JSON.stringify(j.title)})'>Lihat Kandidat</button>
           ${j.status==='open'
             ? `<button class="btn btn-outline btn-sm" onclick='closeJobPosting(${JSON.stringify(j.id)})'>Tutup Lowongan</button>`
             : `<button class="btn btn-outline btn-sm" onclick='reopenJobPosting(${JSON.stringify(j.id)})'>Buka Kembali</button>`}
           <button class="btn btn-danger btn-sm" onclick='deleteJobPosting(${JSON.stringify(j.id)})'>Arsipkan</button>
         </div>
-      </div>`).join('') || '<div class="empty-state">Belum ada lowongan dibuka.</div>'}</div>
+      </div>`;
+    }).join('') || '<div class="empty-state">Belum ada lowongan dibuka.</div>'}</div>
     <div id="candidate-area" style="margin-top:18px;"></div>`;
 }
 
@@ -50,18 +115,66 @@ export function copyCareerPageLink(){
   });
 }
 
+export function viewJobDetails(jobId){
+  const job = CACHE.jobPostings?.find(j=>j.id===jobId);
+  if(!job){
+    showToast('Detail lowongan belum tersedia.', true);
+    return;
+  }
+
+  const dept = CACHE.departments.find(d=>d.id===job.department_id)?.name || 'Umum';
+  const summary = jobSummary(job);
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+      <div>
+        <div style="font-size:12px;color:var(--text-muted);">${escapeHtml(dept)}</div>
+        <h3 style="margin:3px 0 0;">${escapeHtml(job.title)}</h3>
+      </div>
+      ${statusBadge(job.status)}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0;">
+      <div class="card" style="padding:10px;background:#FAFAF6;">
+        <div style="font-size:11px;color:var(--text-muted);">Penempatan</div>
+        <b style="font-size:12px;">${escapeHtml(summary.placement)}</b>
+      </div>
+      <div class="card" style="padding:10px;background:#FAFAF6;">
+        <div style="font-size:11px;color:var(--text-muted);">Sistem Kerja</div>
+        <b style="font-size:12px;">${escapeHtml(summary.workSystem)}</b>
+      </div>
+      <div class="card" style="padding:10px;background:#FAFAF6;">
+        <div style="font-size:11px;color:var(--text-muted);">Gaji</div>
+        <b style="font-size:12px;">${escapeHtml(summary.salary)}</b>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:14px;">
+      <section>
+        <h4 style="margin:0 0 6px;">Ringkasan</h4>
+        <div style="font-size:13px;line-height:1.6;white-space:pre-line;">${formatListText(job.description)}</div>
+      </section>
+      <section>
+        <h4 style="margin:0 0 6px;">Jobdesk / Tanggung Jawab</h4>
+        <div style="font-size:13px;line-height:1.6;">${formatListText(job.responsibilities)}</div>
+      </section>
+      <section>
+        <h4 style="margin:0 0 6px;">Persyaratan</h4>
+        <div style="font-size:13px;line-height:1.6;">${formatListText(job.requirements)}</div>
+      </section>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:18px;">
+      <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
+    </div>
+  `);
+}
+
 export async function closeJobPosting(jobId){
   const { error } = await sb.from('job_postings').update({ status: 'closed' }).eq('id', jobId);
   if(error){ showToast(error.message, true); return; }
 
-  await logAudit(
-    'recruitment.job_close',
-    'job_postings',
-    jobId,
-    { status: 'open' },
-    { status: 'closed' }
-  );
-
+  await logAudit('recruitment.job_close','job_postings',jobId,{status:'open'},{status:'closed'});
   showToast('Lowongan ditutup.');
   renderRecruitment();
 }
@@ -70,14 +183,7 @@ export async function reopenJobPosting(jobId){
   const { error } = await sb.from('job_postings').update({ status: 'open' }).eq('id', jobId);
   if(error){ showToast(error.message, true); return; }
 
-  await logAudit(
-    'recruitment.job_reopen',
-    'job_postings',
-    jobId,
-    { status: 'closed' },
-    { status: 'open' }
-  );
-
+  await logAudit('recruitment.job_reopen','job_postings',jobId,{status:'closed'},{status:'open'});
   showToast('Lowongan dibuka kembali.');
   renderRecruitment();
 }
@@ -85,82 +191,139 @@ export async function reopenJobPosting(jobId){
 export async function deleteJobPosting(jobId){
   if(!confirm('Arsipkan lowongan ini? Data kandidat tetap disimpan untuk histori rekrutmen.')) return;
 
-  const { data, error } = await sb.rpc('soft_delete_master', {
-    p_table_name: 'job_postings',
-    p_id: jobId
-  });
+  const { data, error } = await sb.rpc('soft_delete_master', { p_table_name:'job_postings', p_id:jobId });
+  if(error){ showToast('Gagal mengarsipkan lowongan: ' + error.message, true); return; }
+  if(data !== true){ showToast('Lowongan tidak dapat diarsipkan.', true); return; }
 
-  if(error){
-    showToast('Gagal mengarsipkan lowongan: ' + error.message, true);
-    return;
-  }
-
-  if(data !== true){
-    showToast('Lowongan tidak dapat diarsipkan.', true);
-    return;
-  }
-
-  await logAudit(
-    'recruitment.job_archive',
-    'job_postings',
-    jobId,
-    null,
-    { deleted_at: 'soft_deleted' }
-  );
-
+  await logAudit('recruitment.job_archive','job_postings',jobId,null,{deleted_at:'soft_deleted'});
   showToast('Lowongan diarsipkan. Data kandidat tetap tersimpan.');
   renderRecruitment();
 }
 
-export function openJobForm(){
-  const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
-  openModal(`<h3>Buka Lowongan</h3>
-    <div class="field"><label>Posisi</label><input id="j-title" maxlength="160"></div>
-    <div class="field"><label>Departemen</label><select id="j-dept">${deptOpts}</select></div>
-    <div class="field"><label>Deskripsi</label><textarea id="j-desc" rows="3" maxlength="5000"></textarea></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
+function jobFormHtml(job=null){
+  const isEdit = !!job;
+  const deptOpts = CACHE.departments.map(d=>`<option value="${d.id}" ${job?.department_id===d.id?'selected':''}>${escapeHtml(d.name)}</option>`).join('');
+
+  return `
+    <h3>${isEdit ? 'Edit Lowongan' : 'Buka Lowongan'}</h3>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Posisi</label><input id="j-title" maxlength="160" value="${escapeHtml(job?.title||'')}"></div>
+      <div class="field"><label>Departemen</label><select id="j-dept">${deptOpts}</select></div>
+    </div>
+
+    <div class="field"><label>Ringkasan Posisi</label><textarea id="j-desc" rows="3" maxlength="5000" placeholder="Gambaran singkat posisi...">${escapeHtml(job?.description||'')}</textarea></div>
+    <div class="field"><label>Jobdesk / Tanggung Jawab</label><textarea id="j-responsibilities" rows="5" maxlength="8000" placeholder="Tulis satu poin per baris...">${escapeHtml(job?.responsibilities||'')}</textarea></div>
+    <div class="field"><label>Persyaratan</label><textarea id="j-requirements" rows="5" maxlength="8000" placeholder="Pendidikan, pengalaman, skill, sertifikasi, dll...${'\n'}Satu poin per baris.">${escapeHtml(job?.requirements||'')}</textarea></div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div class="field"><label>Penempatan</label><input id="j-placement" maxlength="180" placeholder="Contoh: Jakarta Selatan" value="${escapeHtml(job?.placement||'')}"></div>
+      <div class="field"><label>Sistem Kerja</label>
+        <select id="j-work-system">
+          <option value="on_site" ${job?.work_system==='on_site'?'selected':''}>On-site</option>
+          <option value="hybrid" ${job?.work_system==='hybrid'?'selected':''}>Hybrid</option>
+          <option value="remote" ${job?.work_system==='remote'?'selected':''}>Remote</option>
+        </select>
+      </div>
+      <div class="field"><label>Gaji Minimum</label><input id="j-salary-min" inputmode="numeric" oninput="formatNumberInput(this)" placeholder="Contoh: 5.000.000" value="${formatMoneyInput(job?.salary_min)}"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Gaji Maksimum</label><input id="j-salary-max" inputmode="numeric" oninput="formatNumberInput(this)" placeholder="Contoh: 7.000.000" value="${formatMoneyInput(job?.salary_max)}"></div>
+      <div class="field">
+        <label>Catatan Gaji</label>
+        <div style="font-size:11.5px;color:var(--text-muted);padding:10px 0;">Kosongkan kedua nominal bila gaji ingin ditampilkan sebagai "Gaji dibicarakan".</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="saveJob()">Simpan</button>
-    </div>`);
+      <button class="btn btn-primary" onclick="${isEdit ? `updateJob('${job.id}')` : 'saveJob()'}">${isEdit ? 'Simpan Perubahan' : 'Publikasikan Lowongan'}</button>
+    </div>`;
 }
 
-export async function saveJob(){
+export function openJobForm(){
+  openModal(jobFormHtml());
+}
+
+export async function editJobForm(jobId){
+  const job = CACHE.jobPostings?.find(j=>j.id===jobId);
+  if(!job){
+    showToast('Data lowongan tidak ditemukan.', true);
+    return;
+  }
+  openModal(jobFormHtml(job));
+}
+
+function collectJobForm(){
   const title = el('j-title').value.trim();
   const description = el('j-desc').value.trim();
-  const departmentId = el('j-dept').value || null;
+  const responsibilities = el('j-responsibilities').value.trim();
+  const requirements = el('j-requirements').value.trim();
+  const placement = el('j-placement').value.trim();
+  const workSystem = el('j-work-system').value;
+  const salaryMin = parseMoneyInput(el('j-salary-min').value);
+  const salaryMax = parseMoneyInput(el('j-salary-max').value);
 
   if(!title){
     showToast('Judul posisi wajib diisi.', true);
-    return;
+    return null;
   }
 
-  const { data, error } = await sb
-    .from('job_postings')
-    .insert({
-      title,
-      department_id: departmentId,
-      description,
-      status: 'open'
-    })
-    .select()
-    .single();
+  if(salaryMin !== null && salaryMax !== null && salaryMax < salaryMin){
+    showToast('Gaji maksimum tidak boleh lebih kecil dari minimum.', true);
+    return null;
+  }
+
+  return {
+    title,
+    department_id: el('j-dept').value || null,
+    description: description || null,
+    responsibilities: responsibilities || null,
+    requirements: requirements || null,
+    placement: placement || null,
+    work_system: workSystem,
+    salary_min: salaryMin,
+    salary_max: salaryMax
+  };
+}
+
+export async function saveJob(){
+  const payload = collectJobForm();
+  if(!payload) return;
+
+  const { data, error } = await sb.from('job_postings').insert({
+    ...payload,
+    status: 'open'
+  }).select().single();
 
   if(error){
     showToast(error.message, true);
     return;
   }
 
-  await logAudit(
-    'recruitment.job_create',
-    'job_postings',
-    data?.id || null,
-    null,
-    { title, department_id: departmentId, status: 'open' }
-  );
-
-  showToast('Lowongan dibuka.');
+  await logAudit('recruitment.job_create','job_postings',data?.id||null,null,payload);
+  showToast('Lowongan berhasil dipublikasikan.');
   closeModal();
-  renderRecruitment();
+  await renderRecruitment();
+}
+
+export async function updateJob(jobId){
+  const payload = collectJobForm();
+  if(!payload) return;
+
+  const { data: previous } = await sb.from('job_postings').select('*').eq('id',jobId).maybeSingle();
+  const { error } = await sb.from('job_postings').update(payload).eq('id',jobId);
+
+  if(error){
+    showToast(error.message, true);
+    return;
+  }
+
+  await logAudit('recruitment.job_update','job_postings',jobId,previous||null,payload);
+  showToast('Informasi lowongan diperbarui.');
+  closeModal();
+  await renderRecruitment();
 }
 
 export async function viewCandidates(jobId, title){
@@ -174,9 +337,13 @@ export async function viewCandidates(jobId, title){
     <tbody>${candidates.map(c=>`<tr>
       <td>${escapeHtml(c.full_name)}${c.converted_employee_id ? ' <span class="badge badge-success" style="margin-left:6px;">✓ Dikonversi</span>' : ''}</td>
       <td>${escapeHtml(c.email||c.phone||'-')}</td>
-      <td><select onchange='updateCandidateStage(${JSON.stringify(c.id)}, this.value, ${JSON.stringify(jobId)}, ${JSON.stringify(title)})'>${STAGES.map(s=>`<option value="${escapeHtml(s)}" ${c.stage===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}</select></td>
+      <td>
+        <select onchange='updateCandidateStage(${JSON.stringify(c.id)}, this.value, ${JSON.stringify(jobId)}, ${JSON.stringify(title)})'>
+          ${STAGES.map(s=>`<option value="${s}" ${c.stage===s?'selected':''}>${escapeHtml(STAGE_LABELS[s]||s)}</option>`).join('')}
+        </select>
+      </td>
       <td style="text-align:right;">
-        ${c.stage === 'hired' && !c.converted_employee_id
+        ${c.stage === 'job_offer' && !c.converted_employee_id
           ? `<button class="btn btn-primary btn-sm" onclick='openConvertForm(${JSON.stringify(c).replace(/'/g,"&apos;")})'>Konversi ke Karyawan</button>`
           : ''}
       </td>
@@ -300,14 +467,7 @@ export async function convertCandidate(candidateId, applicantId){
     }
   }
 
-  await logAudit(
-    'recruitment.candidate_convert',
-    'candidates',
-    candidateId,
-    null,
-    { converted_employee_id: newEmp.id }
-  );
-
+  await logAudit('recruitment.candidate_convert','candidates',candidateId,null,{converted_employee_id:newEmp.id});
   showToast(`✅ ${empData.full_name} berhasil dikonversi jadi karyawan!`);
   closeModal();
   renderRecruitment();
@@ -334,40 +494,22 @@ export async function saveCandidate(jobId){
     return;
   }
 
-  const { data, error } = await sb
-    .from('candidates')
-    .insert({
-      job_posting_id: jobId,
-      full_name: fullName,
-      email: email || null,
-      phone: phone || null,
-      stage: 'applied'
-    })
-    .select()
-    .single();
+  const { data: candidateId, error } = await sb.rpc('create_recruitment_candidate', {
+    p_job_posting_id: jobId,
+    p_full_name: fullName,
+    p_email: email || null,
+    p_phone: phone || null
+  });
 
   if(error){
     showToast(error.message, true);
     return;
   }
 
-  await logAudit(
-    'recruitment.candidate_create',
-    'candidates',
-    data?.id || null,
-    null,
-    { job_posting_id: jobId, stage: 'applied' }
-  );
-
   closeModal();
   showToast('Kandidat ditambahkan.');
 
-  const job = await sb
-    .from('job_postings')
-    .select('title')
-    .eq('id', jobId)
-    .maybeSingle();
-
+  const job = await sb.from('job_postings').select('title').eq('id', jobId).maybeSingle();
   viewCandidates(jobId, job.data?.title || '');
 }
 
@@ -377,29 +519,16 @@ export async function updateCandidateStage(id, stage, jobId, title){
     return;
   }
 
-  const { data: previous } = await sb
-    .from('candidates')
-    .select('stage')
-    .eq('id', id)
-    .maybeSingle();
-
-  const { error } = await sb
-    .from('candidates')
-    .update({ stage })
-    .eq('id', id);
+  const { error } = await sb.rpc('update_candidate_stage', {
+    p_candidate_id: id,
+    p_stage: stage,
+    p_notes: null
+  });
 
   if(error){
     showToast(error.message, true);
     return;
   }
-
-  await logAudit(
-    'recruitment.candidate_stage_update',
-    'candidates',
-    id,
-    { stage: previous?.stage || null },
-    { stage }
-  );
 
   showToast('Tahap kandidat diperbarui.');
   viewCandidates(jobId, title);
