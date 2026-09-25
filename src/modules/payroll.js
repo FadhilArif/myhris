@@ -635,6 +635,60 @@ export async function lockPayroll(runId){
   showToast('Payroll dikunci.');openPayrollRun(runId);
 }
 
+export async function openAdjustmentManager(runId){
+  const runRows=await sbAll('payroll_runs',{eq:{id:runId}});
+  const run=runRows[0];
+  if(!run){showToast('Periode payroll tidak ditemukan.',true);return;}
+  if(!['draft','calculated','under_review'].includes(run.status)){showToast('Adjustment hanya dapat diubah sebelum payroll disetujui.',true);return;}
+  const [adjustments,emps]=await Promise.all([
+    sbAll('payroll_adjustments',{eq:{payroll_run_id:runId},order:{col:'created_at',asc:false}}),
+    sbAll('employees',{eq:{employment_status:'active'},order:{col:'full_name'}})
+  ]);
+  const html = '<div style="width:min(880px,calc(100vw - 32px));max-height:90vh;overflow:auto;">'+
+    '<h3>Payroll Adjustment</h3>'+
+    '<div class="card" style="background:#FAFAF6;">'+
+      '<div class="field"><label>Karyawan</label><select id="adj-employee">'+emps.map(e=>'<option value="'+e.id+'">'+escapeHtml(e.full_name)+' — '+escapeHtml(e.employee_code||'-')+'</option>').join('')+'</select></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">'+
+        '<div class="field"><label>Jenis</label><select id="adj-type"><option value="earning">Pendapatan</option><option value="deduction">Potongan</option></select></div>'+
+        '<div class="field"><label>Nominal</label><input id="adj-amount" inputmode="numeric" oninput="formatNumberInput(this)"></div>'+
+      '</div>'+
+      '<div class="field"><label>Komponen</label><input id="adj-name" maxlength="120" placeholder="Contoh: Bonus proyek"></div>'+
+      '<div class="field"><label>Catatan</label><textarea id="adj-notes" rows="3" maxlength="1000"></textarea></div>'+
+      '<div style="display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="savePayrollAdjustment(\''+runId+'\')">Simpan</button></div>'+
+    '</div>'+
+    '<div class="card" style="padding:0;margin-top:12px;overflow:auto;"><table><thead><tr><th>Karyawan</th><th>Jenis</th><th>Komponen</th><th>Nominal</th><th></th></tr></thead><tbody>'+
+      (adjustments.map(a=>{const e=emps.find(x=>x.id===a.employee_id);return '<tr><td>'+escapeHtml(e?.full_name||'-')+'</td><td>'+(a.adjustment_type==='earning'?'Pendapatan':'Potongan')+'</td><td>'+escapeHtml(a.name)+'</td><td>'+fmtMoney(a.amount)+'</td><td><button class="btn btn-danger btn-sm" onclick="deletePayrollAdjustment(\''+a.id+'\',\''+runId+'\')">Hapus</button></td></tr>';}).join('')||'<tr><td colspan="5" class="empty-state">Belum ada adjustment.</td></tr>')+
+    '</tbody></table></div>'+
+    '<div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline" onclick="closeModal()">Tutup</button></div>'+
+  '</div>';
+  openModal(html);
+}
+
+export async function savePayrollAdjustment(runId){
+  const runRows=await sbAll('payroll_runs',{eq:{id:runId}});
+  const run=runRows[0];
+  if(!run||!['draft','calculated','under_review'].includes(run.status)){showToast('Adjustment tidak dapat ditambahkan pada status ini.',true);return;}
+  const employeeId=el('adj-employee')?.value;
+  const type=el('adj-type')?.value;
+  const name=el('adj-name')?.value.trim();
+  const amount=Number((el('adj-amount')?.value||'').replace(/\D/g,''))||0;
+  const notes=el('adj-notes')?.value.trim();
+  if(!employeeId||!type||!name||amount<=0||!notes){showToast('Lengkapi seluruh data adjustment.',true);return;}
+  const {data,error}=await sb.from('payroll_adjustments').insert({payroll_run_id:runId,employee_id:employeeId,adjustment_type:type,name,amount,notes,created_by:state.currentUser?.id}).select().single();
+  if(error){showToast('Gagal menyimpan adjustment: '+error.message,true);return;}
+  await logAudit('payroll.adjustment_create','payroll_adjustments',data?.id||null,null,{payroll_run_id:runId,employee_id:employeeId,amount,type});
+  showToast('Adjustment disimpan. Silakan hitung ulang payroll.');
+  openAdjustmentManager(runId);
+}
+
+export async function deletePayrollAdjustment(id,runId){
+  if(!confirm('Hapus adjustment ini?'))return;
+  const {error}=await sb.from('payroll_adjustments').delete().eq('id',id);
+  if(error){showToast('Gagal menghapus adjustment: '+error.message,true);return;}
+  await logAudit('payroll.adjustment_delete','payroll_adjustments',id,null,{payroll_run_id:runId});
+  showToast('Adjustment dihapus.');
+  openAdjustmentManager(runId);
+}
 export async function renderMyPayslip(){
   const c = el('content');
   const ME = state.me;
