@@ -802,18 +802,57 @@ export async function lockThr(runId){const {data:run}=await sb.from('payroll_spe
 export async function openCorrectionManager(runId){
   const rows=await sbAll('payroll_runs',{eq:{id:runId}});const run=rows[0];if(!run||run.status!=='locked'){showToast('Koreksi hanya dibuat setelah payroll terkunci.',true);return;}
   const [items,emps]=await Promise.all([sbAll('payroll_corrections',{eq:{payroll_run_id:runId},order:{col:'created_at',asc:false}}),sbAll('employees',{eq:{employment_status:'active'},order:{col:'full_name'}})]);
-  const body=items.map(i=>{const e=emps.find(x=>x.id===i.employee_id)||{};return '<tr><td>'+escapeHtml(e.full_name||'-')+'</td><td>'+(i.correction_type==='earning'?'Tambahan':'Potongan')+'</td><td>'+escapeHtml(i.name)+'</td><td>'+fmtMoney(i.amount)+'</td><td>'+statusBadge(i.status)+'</td><td>'+escapeHtml(i.reason)+'</td></tr>';}).join('')||'<tr><td colspan="6" class="empty-state">Belum ada koreksi.</td></tr>';
-  openModal('<div style="width:min(900px,calc(100vw - 32px));max-height:90vh;overflow:auto;"><h3>Koreksi Payroll</h3><div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Payroll terkunci tidak diubah. Koreksi dibuat sebagai supplemental payment terpisah.</div><div class="card" style="background:#FAFAF6;"><div class="field"><label>Karyawan</label><select id="cor-employee">'+emps.map(e=>'<option value="'+e.id+'">'+escapeHtml(e.full_name)+' — '+escapeHtml(e.employee_code||'-')+'</option>').join('')+'</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div class="field"><label>Jenis</label><select id="cor-type"><option value="earning">Tambahan</option><option value="deduction">Potongan</option></select></div><div class="field"><label>Nominal</label><input id="cor-amount" inputmode="numeric" oninput="formatNumberInput(this)"></div></div><div class="field"><label>Komponen</label><input id="cor-name" maxlength="120" placeholder="Contoh: Koreksi lembur"></div><div class="field"><label>Alasan / Bukti</label><textarea id="cor-reason" rows="3" maxlength="2000"></textarea></div><div style="display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="savePayrollCorrection(\''+runId+'\')">Simpan Koreksi</button></div></div><div class="card" style="padding:0;margin-top:12px;overflow:auto;"><table><thead><tr><th>Karyawan</th><th>Jenis</th><th>Komponen</th><th>Nominal</th><th>Status</th><th>Alasan</th></tr></thead><tbody>'+body+'</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline" onclick="closeModal()">Tutup</button></div></div>');
+  const body=items.map(i=>{const e=emps.find(x=>x.id===i.employee_id)||{};const actions=i.status==='draft'?'<button class="btn btn-outline btn-sm" onclick="approvePayrollCorrection(\''+i.id+'\')">Approve</button>':(i.status==='approved'&&i.correction_type==='earning'&&i.payment_status==='pending'?'<button class="btn btn-outline btn-sm" onclick="generateCorrectionPaymentFile(\''+i.id+'\')">File</button>':'')+(i.status==='approved'&&i.payment_status==='generated'?'<button class="btn btn-outline btn-sm" onclick="markCorrectionUploaded(\''+i.id+'\')">Diunggah</button>':'')+(i.status==='approved'&&i.payment_status==='uploaded'?'<button class="btn btn-primary btn-sm" onclick="markCorrectionPaid(\''+i.id+'\')">Dibayar</button>':'');return '<tr><td>'+escapeHtml(e.full_name||'-')+'</td><td>'+(i.correction_type==='earning'?'Tambahan':'Potongan')+'</td><td>'+escapeHtml(i.name)+'</td><td>'+fmtMoney(i.amount)+'</td><td>'+statusBadge(i.status)+'</td><td>'+statusBadge(i.payment_status||'pending')+'</td><td>'+escapeHtml(i.reason)+'</td><td>'+actions+'</td></tr>';}).join('')||'<tr><td colspan="8" class="empty-state">Belum ada koreksi.</td></tr>';
+  openModal('<div style="width:min(1100px,calc(100vw - 32px));max-height:90vh;overflow:auto;"><h3>Koreksi Payroll</h3><div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Payroll terkunci tetap tidak diubah. Tambahan dibayar sebagai supplemental payment. Koreksi potongan dicatat untuk penyesuaian terpisah.</div><div class="card" style="background:#FAFAF6;"><div class="field"><label>Karyawan</label><select id="cor-employee">'+emps.map(e=>'<option value="'+e.id+'">'+escapeHtml(e.full_name)+' — '+escapeHtml(e.employee_code||'-')+'</option>').join('')+'</select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div class="field"><label>Jenis</label><select id="cor-type"><option value="earning">Tambahan</option><option value="deduction">Potongan</option></select></div><div class="field"><label>Nominal</label><input id="cor-amount" inputmode="numeric" oninput="formatNumberInput(this)"></div></div><div class="field"><label>Komponen</label><input id="cor-name" maxlength="120" placeholder="Contoh: Koreksi lembur"></div><div class="field"><label>Alasan / Bukti</label><textarea id="cor-reason" rows="3" maxlength="2000"></textarea></div><div style="display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="savePayrollCorrection(\''+runId+'\')">Simpan Koreksi</button></div></div><div class="card" style="padding:0;margin-top:12px;overflow:auto;"><table><thead><tr><th>Karyawan</th><th>Jenis</th><th>Komponen</th><th>Nominal</th><th>Status</th><th>Pembayaran</th><th>Alasan</th><th>Aksi</th></tr></thead><tbody>'+body+'</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline" onclick="closeModal()">Tutup</button></div></div>');
 }
 
 export async function savePayrollCorrection(runId){
   const rows=await sbAll('payroll_runs',{eq:{id:runId}});const run=rows[0];if(!run||run.status!=='locked'){showToast('Payroll belum terkunci.',true);return;}
   const employeeId=el('cor-employee')?.value,type=el('cor-type')?.value,name=el('cor-name')?.value.trim(),amount=Number((el('cor-amount')?.value||'').replace(/\D/g,''))||0,reason=el('cor-reason')?.value.trim();
   if(!employeeId||!name||amount<=0||!reason){showToast('Lengkapi data koreksi.',true);return;}
-  const {data,error}=await sb.from('payroll_corrections').insert({payroll_run_id:runId,employee_id:employeeId,correction_type:type,name,amount,reason,status:'draft',created_by:state.currentUser?.id}).select().single();
+  const {data,error}=await sb.from('payroll_corrections').insert({payroll_run_id:runId,employee_id:employeeId,correction_type:type,name,amount,reason,status:'draft',payment_status:'pending',created_by:state.currentUser?.id}).select().single();
   if(error){showToast('Gagal menyimpan koreksi: '+error.message,true);return;}
   await logAudit('payroll.correction_create','payroll_corrections',data?.id||null,null,{payroll_run_id:runId,employee_id:employeeId,amount,type});
-  showToast('Koreksi tersimpan sebagai supplemental payment.');openCorrectionManager(runId);
+  showToast('Koreksi tersimpan.');openCorrectionManager(runId);
+}
+
+export async function approvePayrollCorrection(id){
+  const {data:row,error}=await sb.from('payroll_corrections').select('*').eq('id',id).maybeSingle();
+  if(error||!row){showToast('Koreksi tidak ditemukan.',true);return;}
+  if(row.status!=='draft'){showToast('Koreksi bukan draft.',true);return;}
+  await sb.from('payroll_corrections').update({status:'approved',approved_by:state.currentUser?.id||null,approved_at:new Date().toISOString()}).eq('id',id);
+  await logAudit('payroll.correction_approve','payroll_corrections',id,{status:'draft'},{status:'approved'});
+  openCorrectionManager(row.payroll_run_id);
+}
+
+export async function generateCorrectionPaymentFile(id){
+  const {data:row,error}=await sb.from('payroll_corrections').select('*').eq('id',id).maybeSingle();
+  if(error||!row||row.status!=='approved'||row.correction_type!=='earning'){showToast('Hanya koreksi tambahan yang approved yang dapat dibuatkan file pembayaran.',true);return;}
+  const {data:e}=await sb.from('employees').select('*').eq('id',row.employee_id).maybeSingle();
+  if(!e?.bank_name||!e?.bank_account_number){showToast('Data bank karyawan belum lengkap.',true);return;}
+  const runRows=await sbAll('payroll_runs',{eq:{id:row.payroll_run_id}});const run=runRows[0];
+  const header=['employee_code','employee_name','bank_name','bank_account_number','amount','payment_date','reference','description'].map(csvCell).join(',');
+  const data=[e.employee_code||'',e.full_name||'',e.bank_name||'',e.bank_account_number||'',Math.round(row.amount||0),run?.payment_date||new Date().toISOString().slice(0,10),'CORRECTION-'+row.id,row.name].map(csvCell).join(',');
+  const name='PAYROLL_CORRECTION_'+String(run?.period_year||new Date().getFullYear())+'_'+String(row.id).slice(0,8)+'.csv';
+  const url=URL.createObjectURL(new Blob(['\uFEFF'+header+'\r\n'+data],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  await sb.from('payroll_corrections').update({payment_status:'generated',payment_file_name:name,payment_file_generated_at:new Date().toISOString(),payment_file_generated_by:state.currentUser?.id||null}).eq('id',id);
+  await logAudit('payroll.correction_payment_file','payroll_corrections',id,null,{file_name:name});
+  openCorrectionManager(row.payroll_run_id);
+}
+
+export async function markCorrectionUploaded(id){
+  const {data:row}=await sb.from('payroll_corrections').select('*').eq('id',id).maybeSingle();if(!row||row.status!=='approved'||row.payment_status!=='generated'){showToast('Generate file terlebih dahulu.',true);return;}
+  const ref=prompt('Reference bank (opsional):',row.payment_reference||'');if(ref===null)return;
+  await sb.from('payroll_corrections').update({payment_status:'uploaded',payment_reference:ref.trim()||null,payment_date:new Date().toISOString().slice(0,10)}).eq('id',id);
+  openCorrectionManager(row.payroll_run_id);
+}
+
+export async function markCorrectionPaid(id){
+  const {data:row}=await sb.from('payroll_corrections').select('*').eq('id',id).maybeSingle();if(!row||row.status!=='approved'||row.payment_status!=='uploaded'){showToast('Koreksi belum siap dibayar.',true);return;}
+  if(!confirm('Tandai koreksi sudah dibayar?'))return;
+  await sb.from('payroll_corrections').update({status:'paid',payment_status:'paid',paid_at:new Date().toISOString()}).eq('id',id);
+  await logAudit('payroll.correction_paid','payroll_corrections',id,null,{status:'paid'});
+  openCorrectionManager(row.payroll_run_id);
 }
 export async function renderMyPayslip(){
   const c = el('content');
