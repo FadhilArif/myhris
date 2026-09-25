@@ -660,3 +660,27 @@ Pilihan custom per permission:
 Override disimpan di tabel `permission_overrides` dan enforcement server-side tetap menggunakan `has_permission()`, sehingga custom akses bukan sekadar perubahan UI.
 
 Untuk mencegah admin mengunci akun yang sedang dipakai, akun admin aktif tidak dapat mengubah override dirinya sendiri dari UI.
+
+## Security Phase 3
+
+Branch pengembangan: `Security-Phase-3`
+
+### Private Employee Documents
+Dokumen karyawan pada bucket `employee-documents` menggunakan bucket privat. Akses file tidak memakai public URL; aplikasi membuat signed URL sementara saat pengguna menekan **Lihat**.
+
+Akses storage:
+- Admin/HRD: dapat mengakses dokumen karyawan.
+- Employee: hanya dokumennya sendiri.
+- Manager: tidak mendapat akses dokumen HR secara default.
+
+Upload/delete storage dibatasi RLS storage dan metadata `employee_documents` juga dilindungi RLS.
+
+### Employee Photos
+Bucket foto tetap public-read karena foto profil digunakan pada avatar/direktori. Namun upload dan delete foto dibatasi Admin/HRD.
+
+### File Validation
+Dokumen dibatasi maksimal 10 MB dan MIME type:
+PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX.
+
+### Catatan Migrasi
+Dokumen lama yang memiliki URL public di-backfill ke `storage_path` sebelum bucket dibuat private. Setelah migrasi, frontend menggunakan signed URL sementara untuk membuka file.

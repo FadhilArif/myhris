@@ -842,6 +842,197 @@ grant execute on function public.soft_delete_master(text,uuid) to authenticated;
 commit;
 
 -- =========================================================
+-- SECURITY PHASE 3: PRIVATE EMPLOYEE DOCUMENT STORAGE
+-- =========================================================
+
+-- ---------------------------------------------------------
+-- 1. Employee document metadata
+-- ---------------------------------------------------------
+
+alter table public.employee_documents
+  add column if not exists storage_path text;
+
+-- Backfill storage_path from the legacy public URL format.
+update public.employee_documents
+set storage_path = regexp_replace(
+  file_url,
+  '^.*/storage/v1/object/public/employee-documents/',
+  ''
+)
+where storage_path is null
+  and file_url is not null;
+
+create index if not exists employee_documents_storage_path_idx
+  on public.employee_documents(storage_path);
+
+-- ---------------------------------------------------------
+-- 2. Employee document table RLS
+-- ---------------------------------------------------------
+
+alter table public.employee_documents enable row level security;
+
+drop policy if exists "employee_documents_select" on public.employee_documents;
+create policy "employee_documents_select"
+on public.employee_documents
+for select
+to authenticated
+using (
+  public.is_hr_admin()
+  or employee_id = public.auth_employee_id()
+);
+
+drop policy if exists "employee_documents_insert" on public.employee_documents;
+create policy "employee_documents_insert"
+on public.employee_documents
+for insert
+to authenticated
+with check (
+  (
+    public.is_hr_admin()
+    or employee_id = public.auth_employee_id()
+  )
+  and (
+    uploaded_by = auth.uid()
+    or public.is_hr_admin()
+  )
+);
+
+drop policy if exists "employee_documents_delete" on public.employee_documents;
+create policy "employee_documents_delete"
+on public.employee_documents
+for delete
+to authenticated
+using (
+  public.is_hr_admin()
+  or employee_id = public.auth_employee_id()
+);
+
+drop policy if exists "employee_documents_update_blocked" on public.employee_documents;
+create policy "employee_documents_update_blocked"
+on public.employee_documents
+for update
+to authenticated
+using (false)
+with check (false);
+
+-- ---------------------------------------------------------
+-- 3. Make employee documents private
+-- ---------------------------------------------------------
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'employee-documents',
+  'employee-documents',
+  false,
+  10485760,
+  array[
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ]::text[]
+)
+on conflict (id) do update
+set
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+-- Remove the broad legacy policies documented by the original setup.
+drop policy if exists "Public read docs" on storage.objects;
+drop policy if exists "Auth upload docs" on storage.objects;
+drop policy if exists "Auth delete docs" on storage.objects;
+
+-- ---------------------------------------------------------
+-- 4. Private storage access policies
+-- ---------------------------------------------------------
+
+drop policy if exists "employee_documents_storage_read" on storage.objects;
+create policy "employee_documents_storage_read"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'employee-documents'
+  and (
+    public.is_hr_admin()
+    or (storage.foldername(name))[1] = public.auth_employee_id()::text
+  )
+);
+
+drop policy if exists "employee_documents_storage_insert" on storage.objects;
+create policy "employee_documents_storage_insert"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'employee-documents'
+  and (
+    public.is_hr_admin()
+    or (storage.foldername(name))[1] = public.auth_employee_id()::text
+  )
+);
+
+drop policy if exists "employee_documents_storage_delete" on storage.objects;
+create policy "employee_documents_storage_delete"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'employee-documents'
+  and (
+    public.is_hr_admin()
+    or (storage.foldername(name))[1] = public.auth_employee_id()::text
+  )
+);
+
+-- Do not allow direct browser-side metadata updates to storage objects.
+drop policy if exists "employee_documents_storage_update" on storage.objects;
+create policy "employee_documents_storage_update"
+on storage.objects
+for update
+to authenticated
+using (false)
+with check (false);
+
+-- ---------------------------------------------------------
+-- 5. Tighten employee photo writes
+-- Photos remain public-read because they are used in avatars.
+-- Upload/delete are restricted to Admin/HR.
+-- ---------------------------------------------------------
+
+drop policy if exists "Auth upload photos" on storage.objects;
+create policy "employee_photos_storage_insert_hr"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'employee-photos'
+  and public.is_hr_admin()
+);
+
+drop policy if exists "employee_photos_storage_delete_hr" on storage.objects;
+create policy "employee_photos_storage_delete_hr"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'employee-photos'
+  and public.is_hr_admin()
+);
+
+
+-- =========================================================
 -- CATATAN
 -- =========================================================
 -- 1. Permission server-side sekarang berasal dari role_permissions,

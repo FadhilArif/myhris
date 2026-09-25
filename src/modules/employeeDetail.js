@@ -1,19 +1,33 @@
-import { state, CACHE, isHR } from '../state/store.js';
+import { state, CACHE, isHR, isManager } from '../state/store.js';
 import { sbAll, sbAllQuiet } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge, handleDocFileSelect, clearDocFile } from '../utils/dom.js';
 import { fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize, getFileIcon } from '../utils/format.js';
 import { MOVEMENT_LABELS } from '../config/constants.js';
+import { logAudit } from '../services/audit.js';
+import { isInManagerScope } from '../config/permissions.js';
 
 export const DETAIL_TABS = [
-  { id:'overview', label:'Overview' }, { id:'employment', label:'Employment' },
-  { id:'attendance', label:'Absensi' }, { id:'leave', label:'Cuti' },
-  { id:'payroll', label:'Payroll' }, { id:'performance', label:'Kinerja' },
-  { id:'training', label:'Training' }, { id:'movement', label:'Movement' },
-  { id:'documents', label:'Dokumen' }, { id:'login-history', label:'Riwayat Login' }, { id:'audit', label:'Audit', hrOnly:true }
+  { id:'overview', label:'Overview' },
+  { id:'employment', label:'Employment', hrOnly:true },
+  { id:'attendance', label:'Absensi' },
+  { id:'leave', label:'Cuti' },
+  { id:'payroll', label:'Payroll', hrOnly:true },
+  { id:'performance', label:'Kinerja' },
+  { id:'training', label:'Training' },
+  { id:'movement', label:'Movement', hrOnly:true },
+  { id:'documents', label:'Dokumen' },
+  { id:'login-history', label:'Riwayat Login' },
+  { id:'audit', label:'Audit', hrOnly:true }
 ];
 
 export function canViewEmployeeDetail(employeeId){
-  return isHR() || (state.me && state.me.id === employeeId);
+  if(state.me && state.me.id === employeeId) return true;
+  if(isHR()) return true;
+  if(isManager()){
+    const target = CACHE.employees.find(e => e.id === employeeId);
+    return !!(target && isInManagerScope(target));
+  }
+  return false;
 }
 
 export async function renderEmployeeDetail(employeeId){
@@ -29,7 +43,7 @@ export async function renderEmployeeDetail(employeeId){
   const initials = emp.full_name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
   const avatarHtml = emp.photo_url ? `<img src="${escapeHtml(emp.photo_url)}" alt="">` : (initials || '?');
   const backRoute = isHR() ? 'employees' : 'directory';
-  const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR());
+  const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR() || (state.me && state.me.id === employeeId));
 
   c.innerHTML = `
     <div class="emp-detail-header">
@@ -274,13 +288,29 @@ export async function saveMovement(employeeId){
   showToast('Movement dicatat.'); closeModal(); loadDetailMovement();
 }
 
+export function getDocumentStoragePath(doc){
+  if(doc?.storage_path) return doc.storage_path;
+  const url = String(doc?.file_url || '');
+  const match = url.match(/\/storage\/v1\/object\/public\/employee-documents\/(.+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export async function loadDetailDocuments(){
   const emp = state.empDetail.employee;
   const container = el('detail-tab-content');
   const docs = await sbAllQuiet('employee_documents', { eq:{ employee_id: emp.id }, order:{ col:'created_at', asc:false } });
   const canManage = isHR() || (state.me && state.me.id === emp.id);
+
   container.innerHTML = `
-    <div class="toolbar"><span style="font-size:12.5px;color:var(--text-muted);">${docs.length} dokumen tersimpan</span>${canManage ? `<button class="btn btn-primary btn-sm" onclick="openDocumentForm('${emp.id}')">+ Upload Dokumen</button>` : ''}</div>
+    <div class="toolbar">
+      <span style="font-size:12.5px;color:var(--text-muted);">${docs.length} dokumen tersimpan</span>
+      ${canManage ? `<button class="btn btn-primary btn-sm" onclick="openDocumentForm('${emp.id}')">+ Upload Dokumen</button>` : ''}
+    </div>
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-size:12.5px;color:var(--text-muted);">
+        Dokumen disimpan sebagai file <b>privat</b>. Link akses dibuat sementara saat tombol <b>Lihat</b> ditekan.
+      </div>
+    </div>
     <div class="doc-grid">${docs.map(d=>`
       <div class="doc-card" style="position:relative;">
         <div style="font-size:28px;margin-bottom:6px;">${getFileIcon(d.file_name||'')}</div>
@@ -288,20 +318,108 @@ export async function loadDetailDocuments(){
         <div style="color:var(--text-muted);margin-bottom:6px;word-break:break-all;font-size:11.5px;">${escapeHtml(d.file_name)}</div>
         ${d.file_size ? `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">${formatFileSize(d.file_size)}</div>` : ''}
         ${d.expiry_date ? `<div style="font-size:11.5px;color:var(--warning);margin-bottom:8px;">📅 Berlaku sampai ${fmtDate(d.expiry_date)}</div>` : ''}
-        <a href="${escapeHtml(d.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;">Lihat</a>
-        ${canManage ? `<button onclick="deleteDocument('${d.id}','${escapeHtml(d.file_url)}')" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;">🗑</button>` : ''}
+        <button onclick="openSecureDocument('${d.id}')" class="btn btn-outline btn-sm" style="width:100%;justify-content:center;">Lihat</button>
+        ${canManage ? `<button onclick="deleteDocument('${d.id}')" style="position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px;" title="Hapus dokumen">🗑</button>` : ''}
       </div>`).join('') || '<div class="empty-state">Belum ada dokumen.</div>'}</div>`;
 }
 
-export async function deleteDocument(docId, fileUrl){
-  if(!confirm('Hapus dokumen ini?')) return;
+export async function openSecureDocument(docId){
+  const popup = window.open('', '_blank');
+  if(!popup){
+    showToast('Browser memblokir jendela dokumen. Izinkan pop-up untuk MyHRIS.', true);
+    return;
+  }
+
+  popup.document.write('<p style="font-family:Arial;padding:24px">Menyiapkan dokumen…</p>');
+
   try {
-    const match = fileUrl.match(/employee-documents\/(.+)$/);
-    if(match && match[1]){ await sb.storage.from('employee-documents').remove([decodeURIComponent(match[1])]); }
-    const { error } = await sb.from('employee_documents').delete().eq('id', docId);
-    if(error){ showToast('Gagal hapus: '+error.message, true); return; }
-    showToast('Dokumen dihapus.'); loadDetailDocuments();
-  } catch(e){ showToast('Gagal hapus: '+e.message, true); }
+    const rows = await sbAllQuiet('employee_documents', { eq:{ id: docId } });
+    const doc = rows[0];
+    if(!doc){
+      popup.close();
+      showToast('Dokumen tidak ditemukan.', true);
+      return;
+    }
+
+    const emp = state.empDetail.employee;
+    if(!isHR() && !(state.me && state.me.id === emp?.id)){
+      popup.close();
+      showToast('Anda tidak memiliki akses ke dokumen ini.', true);
+      return;
+    }
+
+    const path = getDocumentStoragePath(doc);
+    if(!path){
+      popup.close();
+      showToast('Lokasi penyimpanan dokumen tidak tersedia.', true);
+      return;
+    }
+
+    const { data, error } = await sb.storage
+      .from('employee-documents')
+      .createSignedUrl(path, 10 * 60);
+
+    if(error || !data?.signedUrl){
+      popup.close();
+      showToast('Gagal membuat link dokumen: ' + (error?.message || 'unknown error'), true);
+      return;
+    }
+
+    popup.location.href = data.signedUrl;
+  } catch(e){
+    popup.close();
+    showToast('Gagal membuka dokumen: ' + e.message, true);
+  }
+}
+
+export async function deleteDocument(docId){
+  if(!confirm('Hapus dokumen ini?')) return;
+
+  try {
+    const rows = await sbAllQuiet('employee_documents', { eq:{ id: docId } });
+    const doc = rows[0];
+    if(!doc){ showToast('Dokumen tidak ditemukan.', true); return; }
+
+    const emp = state.empDetail.employee;
+    if(!isHR() && !(state.me && state.me.id === emp?.id)){
+      showToast('Anda tidak memiliki akses.', true);
+      return;
+    }
+
+    const path = getDocumentStoragePath(doc);
+    if(path){
+      const { error: storageError } = await sb.storage
+        .from('employee-documents')
+        .remove([path]);
+
+      if(storageError){
+        showToast('Gagal menghapus file: ' + storageError.message, true);
+        return;
+      }
+    }
+
+    const { error } = await sb
+      .from('employee_documents')
+      .delete()
+      .eq('id', docId);
+
+    if(error){
+      showToast('Gagal hapus metadata: ' + error.message, true);
+      return;
+    }
+
+    await logAudit('DELETE', 'employee_documents', docId, {
+      employee_id: doc.employee_id,
+      document_type: doc.document_type,
+      file_name: doc.file_name,
+      storage_path: path
+    }, null);
+
+    showToast('Dokumen dihapus.');
+    loadDetailDocuments();
+  } catch(e){
+    showToast('Gagal hapus: ' + e.message, true);
+  }
 }
 
 export function openDocumentForm(employeeId){
@@ -341,22 +459,84 @@ export async function saveDocumentWithUpload(employeeId){
   const submitBtn = el('dc-submit');
   if(!fileInput.files || !fileInput.files.length){ showToast('Pilih file dulu.', true); return; }
   const file = fileInput.files[0];
+  const allowedTypes = [
+    'application/pdf',
+    'image/jpeg','image/png','image/webp',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ];
+  if(!allowedTypes.includes(file.type)){ showToast('Tipe file tidak diizinkan.', true); return; }
   if(file.size > 10 * 1024 * 1024){ showToast('Maks 10 MB.', true); return; }
-  submitBtn.disabled = true; submitBtn.textContent = 'Mengupload…';
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Mengupload…';
+
   try {
+    const emp = state.empDetail.employee;
+    if(!isHR() && !(state.me && state.me.id === emp?.id)){
+      showToast('Anda tidak memiliki akses.', true);
+      return;
+    }
+
     const ext = file.name.split('.').pop().toLowerCase();
     const safeType = el('dc-type').value.toLowerCase().replace(/[^a-z0-9]/g,'_');
     const fileName = `${employeeId}/${safeType}_${Date.now()}.${ext}`;
-    const { error: uploadErr } = await sb.storage.from('employee-documents').upload(fileName, file, { cacheControl:'3600', upsert:false, contentType: file.type });
-    if(uploadErr){ showToast('Gagal upload: '+uploadErr.message, true); return; }
-    const { data: urlData } = sb.storage.from('employee-documents').getPublicUrl(fileName);
-    if(!urlData?.publicUrl){ showToast('Gagal dapat URL.', true); return; }
-    const payload = { employee_id: employeeId, document_type: el('dc-type').value, file_name: file.name, file_url: urlData.publicUrl, file_size: file.size, file_type: file.type, expiry_date: el('dc-expiry').value || null, uploaded_by: state.currentUser?.id || null };
-    const { error: dbErr } = await sb.from('employee_documents').insert(payload);
-    if(dbErr){ await sb.storage.from('employee-documents').remove([fileName]); showToast('Gagal simpan metadata: '+dbErr.message, true); return; }
-    showToast('✅ Dokumen berhasil diupload.'); closeModal(); loadDetailDocuments();
-  } catch(e){ showToast('Error: '+e.message, true); }
-  finally { submitBtn.disabled = false; submitBtn.textContent = 'Upload & Simpan'; }
+
+    const { error: uploadErr } = await sb.storage
+      .from('employee-documents')
+      .upload(fileName, file, {
+        cacheControl:'600',
+        upsert:false,
+        contentType: file.type
+      });
+
+    if(uploadErr){
+      showToast('Gagal upload: ' + uploadErr.message, true);
+      return;
+    }
+
+    const payload = {
+      employee_id: employeeId,
+      document_type: el('dc-type').value,
+      file_name: file.name,
+      file_url: null,
+      storage_path: fileName,
+      file_size: file.size,
+      file_type: file.type,
+      expiry_date: el('dc-expiry').value || null,
+      uploaded_by: state.currentUser?.id || null
+    };
+
+    const { data: inserted, error: dbErr } = await sb
+      .from('employee_documents')
+      .insert(payload)
+      .select('id')
+      .maybeSingle();
+
+    if(dbErr){
+      await sb.storage.from('employee-documents').remove([fileName]);
+      showToast('Gagal simpan metadata: ' + dbErr.message, true);
+      return;
+    }
+
+    await logAudit('CREATE', 'employee_documents', inserted?.id || null, null, {
+      employee_id: employeeId,
+      document_type: payload.document_type,
+      file_name: payload.file_name,
+      storage_path: payload.storage_path
+    });
+
+    showToast('✅ Dokumen berhasil diupload.');
+    closeModal();
+    loadDetailDocuments();
+  } catch(e){
+    showToast('Error: ' + e.message, true);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Upload & Simpan';
+  }
 }
 
 export async function loadDetailLoginHistory(){
