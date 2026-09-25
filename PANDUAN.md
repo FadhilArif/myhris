@@ -1008,3 +1008,71 @@ Payslip menyimpan ringkasan sumber:
 
 Detail komponen juga diberi source seperti `attendance`, `overtime`, `leave`, `claims`, dan `payroll_adjustment`.
 
+
+
+## 💼 Payroll Completion — Adjustment, Reports, THR, Correction
+
+### Payroll Adjustment
+Dari detail periode payroll, HR dapat menambahkan:
+- Pendapatan: bonus, insentif, koreksi, dan tambahan lain.
+- Potongan: pinjaman, koreksi potongan, dan deduction manual.
+
+Adjustment masuk ke kalkulasi saat **Generate Payroll**. Setelah payroll disetujui, adjustment periode tersebut tidak dapat diubah melalui UI.
+
+### Payroll Reports
+Payroll menyediakan laporan per periode dengan:
+- jumlah karyawan;
+- gross payroll;
+- total potongan;
+- take home pay;
+- rekap payroll per departemen;
+- ringkasan sumber dari overtime, reimbursement, unpaid leave, attendance;
+- export CSV detail payroll.
+
+### THR / Special Payroll
+THR disimpan sebagai batch terpisah dari payroll bulanan.
+
+Parameter batch:
+- tahun;
+- tanggal pembayaran;
+- pengali gaji pokok;
+- opsi prorata;
+- catatan kebijakan internal.
+
+Pipeline THR:
+```
+Draft
+→ Calculated
+→ Approved
+→ Payment File
+→ Uploaded
+→ Paid
+→ Locked
+```
+
+Rumus THR pada UI bersifat parameter/configurable untuk kebutuhan internal dan **bukan klaim bahwa aplikasi otomatis memenuhi seluruh ketentuan hukum yang berlaku**.
+
+### Payroll Correction
+Setelah payroll berstatus `locked`, payroll utama tidak diubah.
+
+HR membuat `payroll_corrections` sebagai supplemental payment:
+```
+Draft
+→ Approved
+→ Payment File (untuk koreksi earning)
+→ Uploaded
+→ Paid
+```
+
+Koreksi potongan disimpan sebagai catatan koreksi dan tidak menghasilkan transfer tambahan.
+
+### Payroll Preflight
+Sebelum review/approval, HR dapat menjalankan **Preflight** untuk memeriksa:
+- jumlah slip dibanding karyawan aktif;
+- PTKP;
+- gaji pokok;
+- bank/rekening;
+- gaji bersih negatif;
+- keberadaan komponen BPJS/PPh 21 yang dikonfigurasi.
+
+Preflight adalah pemeriksaan internal MyHRIS dan bukan pernyataan kepatuhan pajak/hukum.
