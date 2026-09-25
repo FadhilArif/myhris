@@ -563,9 +563,33 @@ export async function openPayrollRun(runId){
   const missing=emps.filter(e=>e.employment_status==='active'&&(!e.bank_name||!e.bank_account_number)).length;
   const canReview=r.status==='calculated',canApprove=r.status==='under_review',canPay=r.status==='approved',canLock=r.status==='paid';
   const totals=slips.reduce((a,s)=>{a.g+=Number(s.total_earnings||0);a.d+=Number(s.total_deductions||0);a.n+=Number(s.net_salary||0);return a;},{g:0,d:0,n:0});
+  const integration=slips.reduce((a,s)=>{
+    const att=s.attendance_summary||{};
+    const leave=s.leave_summary||{};
+    const claim=s.claim_summary||{};
+    const overtime=(Array.isArray(s.details)?s.details:[]).filter(d=>d.source==='overtime').reduce((sum,d)=>sum+Number(d.amount||0),0);
+    a.late+=Number(att.late_days||0);
+    a.absent+=Number(att.absent_days||0);
+    a.overtime+=overtime;
+    a.unpaidLeave+=Number(leave.unpaid_leave_amount||0);
+    a.claims+=Number(claim.approved_amount||0);
+    a.claimCount+=Number(claim.approved_count||0);
+    return a;
+  },{late:0,absent:0,overtime:0,unpaidLeave:0,claims:0,claimCount:0});
   el('payslip-area').innerHTML=`<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Payroll</div><h3 style="margin:3px 0;">${String(r.period_month).padStart(2,'0')}/${r.period_year}</h3><div style="font-size:12px;color:var(--text-muted);">Cut-off: ${r.attendance_cutoff_start||'-'} — ${r.attendance_cutoff_end||'-'} · Pembayaran: ${r.payment_date||'-'}</div></div>${statusBadge(r.status)}</div>
     <div class="grid grid-4" style="margin:14px 0;"><div class="stat-card"><div class="stat-num">${slips.length}</div><div class="stat-label">Slip</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.g)}</div><div class="stat-label">Gross</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.d)}</div><div class="stat-label">Potongan</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.n)}</div><div class="stat-label">Take Home Pay</div></div></div>
+    <div style="background:#FAFAF6;border:1px solid var(--border);border-radius:9px;padding:12px 13px;margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:800;margin-bottom:8px;">Sumber Data Payroll</div>
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;">
+        <div><div style="font-size:10.5px;color:var(--text-muted);">Lembur</div><b>${fmtMoney(integration.overtime)}</b></div>
+        <div><div style="font-size:10.5px;color:var(--text-muted);">Reimbursement</div><b>${fmtMoney(integration.claims)}</b><div style="font-size:10px;color:var(--text-muted);">${integration.claimCount} klaim</div></div>
+        <div><div style="font-size:10.5px;color:var(--text-muted);">Unpaid Leave</div><b>${fmtMoney(integration.unpaidLeave)}</b></div>
+        <div><div style="font-size:10.5px;color:var(--text-muted);">Terlambat</div><b>${integration.late} hari</b></div>
+        <div><div style="font-size:10.5px;color:var(--text-muted);">Tidak Hadir</div><b>${integration.absent} hari</b></div>
+      </div>
+      <div style="font-size:10.5px;color:var(--text-muted);margin-top:8px;">Attendance menjadi sumber pemeriksaan/deduksi hanya bila opsi potong absensi diaktifkan pada pengaturan periode.</div>
+    </div>
     ${r.payment_status&&r.payment_status!=='pending'?`<div style='background:#FAFAF6;border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:12px;'><div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start;'><div><div style='font-size:12px;font-weight:800;'>Pembayaran Bank</div><div style='font-size:11.5px;color:var(--text-muted);margin-top:3px;'>Alur manual: generate file → upload ke bank → proses bank → tandai sudah dibayar.</div></div>${statusBadge(r.payment_status)}</div>${r.payment_file_name?`<div style='font-size:11.5px;margin-top:7px;'>File: <b>${escapeHtml(r.payment_file_name)}</b></div>`:''}${r.payment_reference?`<div style='font-size:11.5px;margin-top:3px;'>Reference: <b>${escapeHtml(r.payment_reference)}</b></div>`:''}</div>`:''}
     ${missing?`<div style="background:#FBF1DE;color:#7A5A1A;padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:12px;">⚠ ${missing} karyawan aktif belum punya bank/rekening.</div>`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${['draft','calculated'].includes(r.status)?`<button class="btn btn-primary btn-sm" onclick='generatePayslips(${JSON.stringify(runId)})'>↻ Hitung / Generate</button>`:''}${canReview?`<button class="btn btn-outline btn-sm" onclick='submitPayrollReview(${JSON.stringify(runId)})'>Ajukan Review</button>`:''}${canApprove?`<button class="btn btn-primary btn-sm" onclick='approvePayroll(${JSON.stringify(runId)})'>✓ Approve</button>`:''}${r.status==='approved'?`<button class="btn btn-outline btn-sm" onclick='generatePaymentFile(${JSON.stringify(runId)})'>⇩ Generate File Pembayaran</button>`:''}${r.status==='approved'&&r.payment_status==='generated'?`<button class="btn btn-outline btn-sm" onclick='markPaymentUploaded(${JSON.stringify(runId)})'>✓ Tandai Diunggah ke Bank</button>`:''}${canPay?`<button class="btn btn-primary btn-sm" onclick='markPayrollPaid(${JSON.stringify(runId)})'>✓ Tandai Dibayar</button>`:''}${canLock?`<button class="btn btn-outline btn-sm" onclick='lockPayroll(${JSON.stringify(runId)})'>🔒 Kunci</button>`:''}${['draft','calculated','under_review'].includes(r.status)?`<button class="btn btn-outline btn-sm" onclick='openPayrollRunForm(${JSON.stringify(r)})'>Pengaturan</button>`:''}</div>
