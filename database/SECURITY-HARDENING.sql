@@ -6,6 +6,85 @@
 begin;
 
 -- =========================================================
+-- 0. Security helper functions
+-- SECURITY-HARDENING dibuat self-contained agar tidak wajib
+-- menjalankan ROLE-PERMISSIONS.sql terlebih dahulu.
+-- =========================================================
+
+create or replace function public.auth_role()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select role
+  from public.profiles
+  where id = auth.uid()
+  limit 1
+$;
+
+create or replace function public.auth_employee_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select employee_id
+  from public.profiles
+  where id = auth.uid()
+  limit 1
+$;
+
+create or replace function public.auth_department_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select e.department_id
+  from public.profiles p
+  join public.employees e on e.id = p.employee_id
+  where p.id = auth.uid()
+  limit 1
+$;
+
+create or replace function public.is_hr_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select coalesce(public.auth_role() in ('admin', 'hr'), false)
+$;
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select coalesce(public.auth_role() = 'admin', false)
+$;
+
+-- Helper function tidak boleh dipanggil anonymous.
+revoke all on function public.auth_role() from public;
+revoke all on function public.auth_employee_id() from public;
+revoke all on function public.auth_department_id() from public;
+revoke all on function public.is_hr_admin() from public;
+revoke all on function public.is_admin() from public;
+
+grant execute on function public.auth_role() to authenticated;
+grant execute on function public.auth_employee_id() to authenticated;
+grant execute on function public.auth_department_id() to authenticated;
+grant execute on function public.is_hr_admin() to authenticated;
+grant execute on function public.is_admin() to authenticated;
+
+-- =========================================================
 -- 1. Soft delete untuk employee
 -- =========================================================
 alter table public.employees
