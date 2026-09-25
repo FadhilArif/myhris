@@ -775,3 +775,34 @@ Phase 4 menambahkan CHECK constraint `NOT VALID` untuk:
 - tahap kandidat: `applied`, `screening`, `interview`, `offer`, `hired`, `rejected`.
 
 `NOT VALID` dipakai supaya data lama tidak langsung membuat migration gagal; aturan tetap berlaku pada data baru dan perubahan berikutnya.
+
+
+### Career Portal — Detail Lowongan
+
+Form **Recruitment → Buka/Edit Lowongan** sekarang mendukung:
+- Ringkasan posisi
+- Jobdesk / tanggung jawab
+- Persyaratan
+- Penempatan
+- Sistem kerja: On-site / Hybrid / Remote
+- Gaji minimum dan maksimum
+
+Halaman Career menampilkan ringkasan lowongan dan tombol **Lihat Detail** untuk membuka informasi lengkap.
+
+### Candidate Application Journey
+
+Pipeline rekrutmen sekarang menggunakan 7 tahap:
+1. Seleksi Administrasi
+2. Psikotest
+3. Interview HR
+4. Interview User
+5. Medical Checkup
+6. Negosiasi Gaji
+7. Penawaran Kerja
+
+Tahap tambahan **Tidak Lolos** tersedia sebagai status akhir.
+
+Setiap perubahan tahap dicatat pada `candidate_stage_history`. Pelamar dapat melihat timeline dan riwayat tahap miliknya sendiri dari bagian **Lamaran Saya** di halaman Career.
+
+HR/Admin mengubah tahap melalui RPC `update_candidate_stage`, sedangkan pengajuan dari Career menggunakan `submit_candidate_application`.
+
