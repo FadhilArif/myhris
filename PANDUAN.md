@@ -806,3 +806,45 @@ Setiap perubahan tahap dicatat pada `candidate_stage_history`. Pelamar dapat mel
 
 HR/Admin mengubah tahap melalui RPC `update_candidate_stage`, sedangkan pengajuan dari Career menggunakan `submit_candidate_application`.
 
+
+
+### Detail Kandidat, Berkas & Catatan HR
+
+Dari **Rekrutmen → Lihat Kandidat**, HR dapat membuka **Detail Kandidat**.
+
+Tab yang tersedia:
+- **Profil** — identitas dan informasi kontak pelamar.
+- **Berkas** — upload, lihat, dan hapus CV/KTP/ijazah/sertifikat/portofolio.
+- **Perjalanan Lamaran** — timeline seluruh tahap rekrutmen.
+- **Catatan HR** — catatan internal yang hanya dapat dibaca tim dengan permission `recruitment.manage`.
+
+Berkas kandidat disimpan pada bucket private `candidate-documents` dan dibuka menggunakan signed URL sementara.
+
+### Candidate Documents
+
+Tabel `candidate_documents` menyimpan metadata file, sedangkan file fisik berada di private storage.
+
+MIME yang diizinkan:
+- PDF
+- JPG / PNG / WEBP
+- DOC / DOCX
+- XLS / XLSX
+
+Batas file: 10 MB.
+
+Akses:
+- Kandidat hanya dapat melihat/mengelola berkas dari lamaran miliknya sendiri.
+- HR/Admin yang memiliki `recruitment.manage` dapat mengakses berkas kandidat yang dikelolanya.
+- Update metadata langsung dari browser diblokir.
+
+### Internal HR Notes
+
+Catatan internal disimpan di `candidate_internal_notes`.
+
+Penambahan catatan menggunakan RPC:
+```
+public.add_candidate_internal_note(candidate_id, note)
+```
+
+Catatan tidak ikut ditampilkan pada halaman Career publik/pelamar.
+
