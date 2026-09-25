@@ -35,6 +35,8 @@ export const statusBadge = (status) => {
     active:['Aktif','success'], probation:['Probation','warning'],
     resigned:['Resign','neutral'], terminated:['Diberhentikan','danger'],
     open:['Dibuka','success'], closed:['Ditutup','neutral'], on_hold:['Ditunda','warning'],
+    draft:['Draft','neutral'], calculated:['Terhitung','warning'], under_review:['Menunggu Review','warning'],
+    approved:['Disetujui','success'], paid:['Sudah Dibayar','success'], locked:['Terkunci','neutral'],
     applied:['Melamar','neutral'], screening:['Screening','warning'],
     interview:['Interview','warning'], offer:['Penawaran','warning'], hired:['Diterima','success'],
     draft:['Draft','neutral'], processed:['Diproses','warning'],
