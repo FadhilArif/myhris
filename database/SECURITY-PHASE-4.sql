@@ -623,6 +623,283 @@ for delete
 to authenticated
 using (false);
 
+
+-- =========================================================
+-- 11. CANDIDATE DOCUMENTS (PRIVATE)
+-- =========================================================
+
+create table if not exists public.candidate_documents (
+  id uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  document_type text not null,
+  file_name text not null,
+  storage_path text not null,
+  file_size bigint,
+  file_type text,
+  uploaded_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists candidate_documents_candidate_idx
+  on public.candidate_documents(candidate_id, created_at desc);
+
+alter table public.candidate_documents enable row level security;
+
+drop policy if exists "candidate_documents_select" on public.candidate_documents;
+create policy "candidate_documents_select"
+on public.candidate_documents
+for select
+to authenticated
+using (
+  public.has_permission('recruitment.manage')
+  or exists (
+    select 1
+    from public.candidates c
+    where c.id = candidate_id
+      and c.applicant_id = auth.uid()
+  )
+);
+
+drop policy if exists "candidate_documents_insert" on public.candidate_documents;
+create policy "candidate_documents_insert"
+on public.candidate_documents
+for insert
+to authenticated
+with check (
+  (
+    public.has_permission('recruitment.manage')
+    or exists (
+      select 1
+      from public.candidates c
+      where c.id = candidate_id
+        and c.applicant_id = auth.uid()
+    )
+  )
+  and uploaded_by = auth.uid()
+);
+
+drop policy if exists "candidate_documents_delete" on public.candidate_documents;
+create policy "candidate_documents_delete"
+on public.candidate_documents
+for delete
+to authenticated
+using (
+  public.has_permission('recruitment.manage')
+  or exists (
+    select 1
+    from public.candidates c
+    where c.id = candidate_id
+      and c.applicant_id = auth.uid()
+  )
+);
+
+drop policy if exists "candidate_documents_update_blocked" on public.candidate_documents;
+create policy "candidate_documents_update_blocked"
+on public.candidate_documents
+for update
+to authenticated
+using (false)
+with check (false);
+
+insert into storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+)
+values (
+  'candidate-documents',
+  'candidate-documents',
+  false,
+  10485760,
+  array[
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ]::text[]
+)
+on conflict (id) do update
+set
+  public = false,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "candidate_documents_storage_read" on storage.objects;
+create policy "candidate_documents_storage_read"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'candidate-documents'
+  and (
+    public.has_permission('recruitment.manage')
+    or exists (
+      select 1
+      from public.candidates c
+      where c.id::text = (storage.foldername(name))[1]
+        and c.applicant_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "candidate_documents_storage_insert" on storage.objects;
+create policy "candidate_documents_storage_insert"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'candidate-documents'
+  and (
+    public.has_permission('recruitment.manage')
+    or exists (
+      select 1
+      from public.candidates c
+      where c.id::text = (storage.foldername(name))[1]
+        and c.applicant_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "candidate_documents_storage_delete" on storage.objects;
+create policy "candidate_documents_storage_delete"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'candidate-documents'
+  and (
+    public.has_permission('recruitment.manage')
+    or exists (
+      select 1
+      from public.candidates c
+      where c.id::text = (storage.foldername(name))[1]
+        and c.applicant_id = auth.uid()
+    )
+  )
+);
+
+drop policy if exists "candidate_documents_storage_update" on storage.objects;
+create policy "candidate_documents_storage_update"
+on storage.objects
+for update
+to authenticated
+using (false)
+with check (false);
+
+-- =========================================================
+-- 12. INTERNAL HR NOTES
+-- =========================================================
+
+create table if not exists public.candidate_internal_notes (
+  id uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  note text not null,
+  created_by uuid not null references auth.users(id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists candidate_internal_notes_candidate_idx
+  on public.candidate_internal_notes(candidate_id, created_at desc);
+
+alter table public.candidate_internal_notes enable row level security;
+
+drop policy if exists "candidate_internal_notes_select" on public.candidate_internal_notes;
+create policy "candidate_internal_notes_select"
+on public.candidate_internal_notes
+for select
+to authenticated
+using (
+  public.has_permission('recruitment.manage')
+);
+
+drop policy if exists "candidate_internal_notes_insert" on public.candidate_internal_notes;
+create policy "candidate_internal_notes_insert"
+on public.candidate_internal_notes
+for insert
+to authenticated
+with check (
+  public.has_permission('recruitment.manage')
+  and created_by = auth.uid()
+);
+
+drop policy if exists "candidate_internal_notes_update_blocked" on public.candidate_internal_notes;
+create policy "candidate_internal_notes_update_blocked"
+on public.candidate_internal_notes
+for update
+to authenticated
+using (false)
+with check (false);
+
+drop policy if exists "candidate_internal_notes_delete_blocked" on public.candidate_internal_notes;
+create policy "candidate_internal_notes_delete_blocked"
+on public.candidate_internal_notes
+for delete
+to authenticated
+using (false);
+
+-- =========================================================
+-- 13. INTERNAL NOTE RPC
+-- =========================================================
+
+create or replace function public.add_candidate_internal_note(
+  p_candidate_id uuid,
+  p_note text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_id uuid;
+begin
+  if auth.uid() is null or not public.has_permission('recruitment.manage') then
+    raise exception 'Not authorized';
+  end if;
+
+  if nullif(trim(p_note), '') is null then
+    raise exception 'Catatan tidak boleh kosong';
+  end if;
+
+  if not exists (
+    select 1 from public.candidates where id = p_candidate_id
+  ) then
+    raise exception 'Kandidat tidak ditemukan';
+  end if;
+
+  insert into public.candidate_internal_notes (
+    candidate_id,
+    note,
+    created_by
+  )
+  values (
+    p_candidate_id,
+    left(trim(p_note), 4000),
+    auth.uid()
+  )
+  returning id into v_id;
+
+  perform public.record_audit(
+    'recruitment.candidate_note_add',
+    'candidate_internal_notes',
+    v_id,
+    null,
+    jsonb_build_object('candidate_id', p_candidate_id)
+  );
+
+  return v_id;
+end;
+$fn$;
+
+revoke all on function public.add_candidate_internal_note(uuid,text) from public;
+grant execute on function public.add_candidate_internal_note(uuid,text) to authenticated;
+
 -- =========================================================
 -- 9. PUBLIC DEPARTMENT NAMES
 -- =========================================================
