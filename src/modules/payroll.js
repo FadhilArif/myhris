@@ -172,6 +172,73 @@ export async function viewPayslips(runId, month, year){
     <tbody>${slips.map(s=>{ const e = emps.find(x=>x.id===s.employee_id); return `<tr><td>${e?e.full_name:'-'}</td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum dibuat.</td></tr>'}</tbody></table></div>`;
 }
 
+
+export async function updatePayrollRun(runId){
+  const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
+  if(!['draft','calculated','under_review'].includes(run.data.status)){showToast('Periode sudah final dan tidak dapat diedit.',true);return;}
+  const start=el('pr-start').value,end=el('pr-end').value,payment=el('pr-payment').value,notes=el('pr-notes').value.trim();
+  if(start&&end&&start>end){showToast('Cut-off tidak valid.',true);return;}
+  const {error}=await sb.from('payroll_runs').update({attendance_cutoff_start:start||null,attendance_cutoff_end:end||null,payment_date:payment||null,notes:notes||null}).eq('id',runId);
+  if(error){showToast(error.message,true);return;}
+  await logAudit('payroll.run_update','payroll_runs',runId,null,{attendance_cutoff_start:start,attendance_cutoff_end:end,payment_date:payment});
+  closeModal();showToast('Periode diperbarui.');renderPayroll();
+}
+
+export async function openPayrollRun(runId){
+  const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
+  const r=run.data;
+  const [slips,emps]=await Promise.all([sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees')]);
+  const missing=emps.filter(e=>e.employment_status==='active'&&(!e.bank_name||!e.bank_account_number)).length;
+  const canReview=r.status==='calculated',canApprove=r.status==='under_review',canPay=r.status==='approved',canLock=r.status==='paid';
+  const totals=slips.reduce((a,s)=>{a.g+=Number(s.total_earnings||0);a.d+=Number(s.total_deductions||0);a.n+=Number(s.net_salary||0);return a;},{g:0,d:0,n:0});
+  el('payslip-area').innerHTML=`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Payroll</div><h3 style="margin:3px 0;">${String(r.period_month).padStart(2,'0')}/${r.period_year}</h3><div style="font-size:12px;color:var(--text-muted);">Cut-off: ${r.attendance_cutoff_start||'-'} — ${r.attendance_cutoff_end||'-'} · Pembayaran: ${r.payment_date||'-'}</div></div>${statusBadge(r.status)}</div>
+    <div class="grid grid-4" style="margin:14px 0;"><div class="stat-card"><div class="stat-num">${slips.length}</div><div class="stat-label">Slip</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.g)}</div><div class="stat-label">Gross</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.d)}</div><div class="stat-label">Potongan</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.n)}</div><div class="stat-label">Take Home Pay</div></div></div>
+    ${missing?`<div style="background:#FBF1DE;color:#7A5A1A;padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:12px;">⚠ ${missing} karyawan aktif belum punya bank/rekening.</div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${['draft','calculated'].includes(r.status)?`<button class="btn btn-primary btn-sm" onclick='generatePayslips(${JSON.stringify(runId)})'>↻ Hitung / Generate</button>`:''}${canReview?`<button class="btn btn-outline btn-sm" onclick='submitPayrollReview(${JSON.stringify(runId)})'>Ajukan Review</button>`:''}${canApprove?`<button class="btn btn-primary btn-sm" onclick='approvePayroll(${JSON.stringify(runId)})'>✓ Approve</button>`:''}${canPay?`<button class="btn btn-primary btn-sm" onclick='markPayrollPaid(${JSON.stringify(runId)})'>✓ Tandai Dibayar</button>`:''}${canLock?`<button class="btn btn-outline btn-sm" onclick='lockPayroll(${JSON.stringify(runId)})'>🔒 Kunci</button>`:''}${['draft','calculated','under_review'].includes(r.status)?`<button class="btn btn-outline btn-sm" onclick='openPayrollRunForm(${JSON.stringify(r)})'>Pengaturan</button>`:''}</div>
+    <div style="overflow:auto;"><table><thead><tr><th>Karyawan</th><th>Bank</th><th>Gaji Pokok</th><th>Gross</th><th>Potongan</th><th>Net</th><th></th></tr></thead><tbody>${slips.map(s=>{const e=emps.find(x=>x.id===s.employee_id)||{};return `<tr><td>${escapeHtml(e.full_name||'-')}<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(e.employee_code||'-')}</div></td><td>${escapeHtml(e.bank_name||'-')}<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(e.bank_account_number||'-')}</div></td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td><td><button class="btn btn-outline btn-sm" onclick='showPayslipDetail(${JSON.stringify(s)},${JSON.stringify(String(r.period_month).padStart(2,'0')+'/'+r.period_year)},${JSON.stringify(e)})'>Detail</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty-state">Belum ada slip.</td></tr>'}</tbody></table></div>
+    </div>`;
+}
+
+export async function submitPayrollReview(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  const slips=await sbAll('payslips',{eq:{payroll_run_id:runId}});
+  if(run?.status!=='calculated'||!slips.length){showToast('Payroll harus sudah dihitung.',true);return;}
+  await sb.from('payroll_runs').update({status:'under_review',reviewed_by:state.currentUser?.id||null,reviewed_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.submit_review','payroll_runs',runId,{status:'calculated'},{status:'under_review'});
+  showToast('Payroll masuk tahap review.');openPayrollRun(runId);
+}
+
+export async function approvePayroll(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  if(run?.status!=='under_review'){showToast('Payroll belum siap di-approve.',true);return;}
+  if(!confirm('Approve payroll ini? Setelah disetujui, perubahan harus melalui koreksi payroll.'))return;
+  await sb.from('payroll_runs').update({status:'approved',approved_by:state.currentUser?.id||null,approved_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.approve','payroll_runs',runId,{status:'under_review'},{status:'approved'});
+  showToast('Payroll disetujui.');openPayrollRun(runId);
+}
+
+export async function markPayrollPaid(runId){
+  const {data:run}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run?.status!=='approved'){showToast('Payroll harus disetujui terlebih dahulu.',true);return;}
+  if(!confirm('Tandai payroll sudah dibayar? Ini hanya mencatat status; belum terhubung ke bank.'))return;
+  const payment=run.payment_date||new Date().toISOString().slice(0,10);
+  await sb.from('payroll_runs').update({status:'paid',payment_date:payment,paid_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.mark_paid','payroll_runs',runId,{status:'approved'},{status:'paid',payment_date:payment});
+  showToast('Payroll ditandai sudah dibayar.');openPayrollRun(runId);
+}
+
+export async function lockPayroll(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  if(run?.status!=='paid'){showToast('Payroll harus sudah dibayar.',true);return;}
+  if(!confirm('Kunci payroll ini? Setelah dikunci, periode dianggap final.'))return;
+  await sb.from('payroll_runs').update({status:'locked',locked_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.lock','payroll_runs',runId,{status:'paid'},{status:'locked'});
+  showToast('Payroll dikunci.');openPayrollRun(runId);
+}
+
 export async function renderMyPayslip(){
   const c = el('content');
   const ME = state.me;
