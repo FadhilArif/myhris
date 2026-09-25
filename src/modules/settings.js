@@ -356,6 +356,8 @@ export async function openPermissionManager(profile){
         <button class="btn btn-primary" onclick="savePermissionOverrides('${profile.id}')">Simpan Perubahan</button>
       </div>
     </div>`);
+  const wideModal = document.querySelector('#modal-root .modal');
+  if(wideModal) wideModal.classList.add('permission-modal-wide');
 }
 
 export async function savePermissionOverrides(userId){
