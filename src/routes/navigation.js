@@ -23,7 +23,7 @@ export const NAV_ADMIN = [
     {route:'claims', label:'Reimbursement', icon:'claims'},
     {route:'reports', label:'Laporan & Audit', icon:'audit'},
     {route:'settings', label:'Pengaturan', icon:'settings'},
-  ]}
+  ]},
   {group:'Layanan Saya', items:[
     {route:'my-attendance', label:'Absensi Saya', icon:'attendance'},
     {route:'my-overtime', label:'Lembur Saya', icon:'perf'},
@@ -51,7 +51,7 @@ export const NAV_HR = [
   {group:'Lainnya', items:[
     {route:'claims', label:'Reimbursement', icon:'claims'},
     {route:'reports', label:'Laporan & Audit', icon:'audit'},
-  ]}
+  ]},
   {group:'Layanan Saya', items:[
     {route:'my-attendance', label:'Absensi Saya', icon:'attendance'},
     {route:'my-overtime', label:'Lembur Saya', icon:'perf'},
@@ -76,7 +76,7 @@ export const NAV_MANAGER = [
   {group:'Lainnya', items:[
     {route:'directory', label:'Direktori Karyawan', icon:'directory'},
     {route:'reports', label:'Laporan', icon:'audit'},
-  ]}
+  ]},
   {group:'Layanan Saya', items:[
     {route:'my-attendance', label:'Absensi Saya', icon:'attendance'},
     {route:'my-overtime', label:'Lembur Saya', icon:'perf'},
