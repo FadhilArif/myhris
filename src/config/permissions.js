@@ -53,6 +53,7 @@ export const ROLE_PERMISSIONS = {
       'attendance.view_self','attendance.view_team',
       'leave.view_self','leave.create','leave.view_team','leave.approve',
       'overtime.view_self','overtime.create','overtime.view_team','overtime.approve',
+      'payroll.view_self',
       'performance.view_team','performance.manage_team',
       'training.view_self','training.enroll','training.view_team',
       'claims.view_self','claims.create',
