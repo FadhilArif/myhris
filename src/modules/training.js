@@ -16,8 +16,10 @@ export async function renderTraining(){
         <b>${escapeHtml(p.name)}</b>
         <div style="font-size:12.5px;color:var(--text-muted);margin:4px 0;">${escapeHtml(p.provider||'-')} • ${fmtDate(p.start_date)} - ${fmtDate(p.end_date)}</div>
         <p style="font-size:13px;color:var(--text-muted);">${escapeHtml(p.description||'')}</p>
-        ${isHR() || isManager() ? `<button class="btn btn-outline btn-sm" onclick="viewEnrollments('${p.id}','${escapeHtml(p.name)}')">Lihat Peserta</button>` :
-          (state.me ? (mine ? statusBadge(mine.status) : `<button class="btn btn-primary btn-sm" onclick="enrollTraining('${p.id}')">Ikuti Training</button>`) : '')}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          ${can('training.enroll') && state.me ? (mine ? statusBadge(mine.status) : `<button class="btn btn-primary btn-sm" onclick="enrollTraining('${p.id}')">Ikuti Training</button>`) : ''}
+          ${can('training.manage') || can('training.view_team') ? `<button class="btn btn-outline btn-sm" onclick="viewEnrollments('${p.id}','${escapeHtml(p.name)}')">Lihat Peserta</button>` : ''}
+        </div>
       </div>`;
     }).join('') || '<div class="empty-state">Belum ada program training.</div>'}</div>
     <div id="enroll-area" style="margin-top:18px;"></div>`;
