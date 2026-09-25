@@ -6,7 +6,7 @@ import { ROLES } from './constants.js';
 export const ROLE_PERMISSIONS = {
   [ROLES.ADMIN]: {
     routes: [
-      'dashboard','employees','attendance','shifts','leave','overtime','payroll',
+      'dashboard','my-attendance','my-overtime','my-leave','my-payslip','my-claims','employees','attendance','shifts','leave','overtime','payroll',
       'recruitment','performance','training','claims','settings','directory',
       'employee-detail','onboarding','onboarding-templates','reports',
     ],
@@ -26,7 +26,7 @@ export const ROLE_PERMISSIONS = {
 
   [ROLES.HR]: {
     routes: [
-      'dashboard','employees','attendance','shifts','leave','overtime','payroll',
+      'dashboard','my-attendance','my-overtime','my-leave','my-payslip','my-claims','employees','attendance','shifts','leave','overtime','payroll',
       'recruitment','performance','training','claims','directory',
       'employee-detail','onboarding','onboarding-templates','reports',
     ],
@@ -45,7 +45,7 @@ export const ROLE_PERMISSIONS = {
 
   [ROLES.MANAGER]: {
     routes: [
-      'dashboard','team','attendance','leave','overtime',
+      'dashboard','my-attendance','my-overtime','my-leave','my-payslip','my-claims','team','attendance','leave','overtime',
       'performance','training','directory','employee-detail','reports',
     ],
     actions: [
