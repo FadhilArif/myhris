@@ -954,3 +954,57 @@ pending → generated → uploaded → paid
 ```
 
 Format CSV saat ini adalah **format umum**, bukan template khusus bank tertentu. Template khusus BCA/Mandiri/BNI/BRI dapat ditambahkan kemudian tanpa mengubah mesin payroll utama.
+
+
+## 🔗 Payroll Integration
+
+Branch: `Payroll-Integration`
+
+Payroll sekarang membaca transaksi HRIS langsung saat proses **Generate Payroll**.
+
+### Attendance
+Payroll mengambil data attendance dalam rentang cut-off dan menyimpan ringkasan pada payslip:
+- jumlah hari tercatat;
+- hadir;
+- terlambat;
+- tidak hadir;
+- checkout belum lengkap.
+
+**Potongan absensi tidak aktif secara default.** HR dapat mengaktifkan `Potong Absensi Alpha/Tidak Hadir` pada pengaturan periode payroll.
+
+### Overtime
+Hanya lembur berstatus `approved` dalam rentang cut-off yang masuk payroll.
+
+Payroll memakai:
+- jumlah jam lembur;
+- nominal lembur yang sudah disetujui.
+
+### Leave
+Setiap jenis cuti memiliki pengaturan **Dampak Payroll**:
+- `Tidak memengaruhi payroll`
+- `Dibayar`
+- `Tidak dibayar`
+
+Cuti berstatus approved yang bertumpuk dengan periode payroll dihitung berdasarkan hari yang masuk cut-off.
+
+Untuk cuti `Tidak dibayar`, payroll memotong:
+`Gaji Pokok ÷ Hari Kerja Payroll per Bulan × Hari Unpaid Leave`
+
+Hari kerja payroll default: **22**, dan dapat diubah per periode.
+
+### Claims / Reimbursement
+Klaim dengan status `approved` yang disetujui dalam rentang cut-off masuk sebagai pendapatan `Reimbursement`.
+
+Klaim yang sudah berstatus `paid` tidak dimasukkan lagi agar tidak dibayar dua kali melalui payroll.
+
+### Payroll Adjustment
+`payroll_adjustments` tetap ikut dihitung sebagai earning atau deduction untuk periode yang bersangkutan.
+
+### Audit Source
+Payslip menyimpan ringkasan sumber:
+- `attendance_summary`
+- `leave_summary`
+- `claim_summary`
+
+Detail komponen juga diberi source seperti `attendance`, `overtime`, `leave`, `claims`, dan `payroll_adjustment`.
+
