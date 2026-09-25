@@ -684,3 +684,167 @@ PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX.
 
 ### Catatan Migrasi
 Dokumen lama yang memiliki URL public di-backfill ke `storage_path` sebelum bucket dibuat private. Setelah migrasi, frontend menggunakan signed URL sementara untuk membuka file.
+
+
+## 🔐 Security Phase 4 — Recruitment Privacy
+
+Branch pengembangan: `Security-Phase-4`
+
+Fase ini mengisolasi data pelamar dari akses publik dan memperbaiki alur halaman karir.
+
+### Candidate Profile Privacy
+
+Tabel `candidate_profiles` sekarang:
+- hanya dapat dibaca oleh pemilik akun pelamar atau akun dengan permission `recruitment.manage`;
+- hanya dapat dibuat/diubah oleh pemilik akun;
+- tidak dapat dihapus dari browser.
+
+Data seperti nama, telepon, email, dan link CV tidak lagi dapat dibaca oleh publik hanya karena diketahui endpoint tabelnya.
+
+### Candidate / Application Privacy
+
+Tabel `candidates` sekarang:
+- HR/Admin atau akun yang memiliki `recruitment.manage` dapat melihat dan mengelola kandidat;
+- pelamar hanya dapat melihat lamaran miliknya sendiri;
+- pelamar hanya dapat membuat lamaran menggunakan `applicant_id = auth.uid()`;
+- pelamar hanya dapat melamar lowongan yang masih berstatus `open`;
+- perubahan tahap kandidat dan penghapusan kandidat dari browser hanya boleh dilakukan oleh pengguna dengan `recruitment.manage`;
+- delete permanen kandidat diblokir agar histori rekrutmen tidak hilang.
+
+### Public Career Page
+
+Lowongan yang berstatus `open` dan belum di-soft-delete dapat dibaca oleh halaman karir publik.
+
+Nama departemen aktif dapat dibaca publik hanya untuk kebutuhan label lowongan. Data karyawan maupun data kandidat tidak ikut dibuka.
+
+### Recruitment Audit
+
+Operasi internal penting pada rekrutmen kini dicatat melalui `record_audit`, antara lain:
+- membuat lowongan;
+- menutup / membuka kembali lowongan;
+- mengarsipkan lowongan;
+- membuat kandidat;
+- mengubah tahap kandidat;
+- mengonversi kandidat menjadi karyawan.
+
+Pengarsipan lowongan memakai `soft_delete_master('job_postings', ...)`, sehingga data kandidat tidak ikut dihapus.
+
+### Migration
+
+Jalankan:
+
+```
+database/SECURITY-PHASE-4.sql
+```
+
+Urutan aman:
+```
+backup
+→ jalankan SQL Phase 4
+→ login sebagai Admin/HR
+→ tes halaman Recruitment
+→ tes halaman Career sebagai publik
+→ tes akun pelamar
+→ pastikan pelamar A tidak dapat membaca lamaran pelamar B
+```
+
+Catatan: fase berikutnya akan menangani database constraints/validation, abuse protection, dan security monitoring secara bertahap.
+
+
+### Secure Candidate Application RPC
+
+Halaman karir tidak lagi menulis langsung ke tabel `candidates`.
+
+Pengajuan lamaran menggunakan:
+```
+public.submit_candidate_application(job_posting_id)
+```
+
+RPC mengambil identitas pelamar dari `auth.uid()` dan data profil dari `candidate_profiles`. Browser tidak dapat mengirim `applicant_id`, nama, email, atau telepon untuk menyamarkan identitas pelamar lain.
+
+Perlindungan tambahan:
+- hanya lowongan `open` yang dapat menerima lamaran;
+- satu akun tidak dapat melamar lowongan yang sama dua kali;
+- maksimal 20 pengajuan lamaran dalam 24 jam per akun;
+- pengajuan dicatat ke audit log.
+
+### Database Validation Recruitment
+
+Phase 4 menambahkan CHECK constraint `NOT VALID` untuk:
+- status lowongan: `open` / `closed`;
+- tahap kandidat: `applied`, `screening`, `interview`, `offer`, `hired`, `rejected`.
+
+`NOT VALID` dipakai supaya data lama tidak langsung membuat migration gagal; aturan tetap berlaku pada data baru dan perubahan berikutnya.
+
+
+### Career Portal — Detail Lowongan
+
+Form **Recruitment → Buka/Edit Lowongan** sekarang mendukung:
+- Ringkasan posisi
+- Jobdesk / tanggung jawab
+- Persyaratan
+- Penempatan
+- Sistem kerja: On-site / Hybrid / Remote
+- Gaji minimum dan maksimum
+
+Halaman Career menampilkan ringkasan lowongan dan tombol **Lihat Detail** untuk membuka informasi lengkap.
+
+### Candidate Application Journey
+
+Pipeline rekrutmen sekarang menggunakan 7 tahap:
+1. Seleksi Administrasi
+2. Psikotest
+3. Interview HR
+4. Interview User
+5. Medical Checkup
+6. Negosiasi Gaji
+7. Penawaran Kerja
+
+Tahap tambahan **Tidak Lolos** tersedia sebagai status akhir.
+
+Setiap perubahan tahap dicatat pada `candidate_stage_history`. Pelamar dapat melihat timeline dan riwayat tahap miliknya sendiri dari bagian **Lamaran Saya** di halaman Career.
+
+HR/Admin mengubah tahap melalui RPC `update_candidate_stage`, sedangkan pengajuan dari Career menggunakan `submit_candidate_application`.
+
+
+
+### Detail Kandidat, Berkas & Catatan HR
+
+Dari **Rekrutmen → Lihat Kandidat**, HR dapat membuka **Detail Kandidat**.
+
+Tab yang tersedia:
+- **Profil** — identitas dan informasi kontak pelamar.
+- **Berkas** — upload, lihat, dan hapus CV/KTP/ijazah/sertifikat/portofolio.
+- **Perjalanan Lamaran** — timeline seluruh tahap rekrutmen.
+- **Catatan HR** — catatan internal yang hanya dapat dibaca tim dengan permission `recruitment.manage`.
+
+Berkas kandidat disimpan pada bucket private `candidate-documents` dan dibuka menggunakan signed URL sementara.
+
+### Candidate Documents
+
+Tabel `candidate_documents` menyimpan metadata file, sedangkan file fisik berada di private storage.
+
+MIME yang diizinkan:
+- PDF
+- JPG / PNG / WEBP
+- DOC / DOCX
+- XLS / XLSX
+
+Batas file: 10 MB.
+
+Akses:
+- Kandidat hanya dapat melihat/mengelola berkas dari lamaran miliknya sendiri.
+- HR/Admin yang memiliki `recruitment.manage` dapat mengakses berkas kandidat yang dikelolanya.
+- Update metadata langsung dari browser diblokir.
+
+### Internal HR Notes
+
+Catatan internal disimpan di `candidate_internal_notes`.
+
+Penambahan catatan menggunakan RPC:
+```
+public.add_candidate_internal_note(candidate_id, note)
+```
+
+Catatan tidak ikut ditampilkan pada halaman Career publik/pelamar.
+

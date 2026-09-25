@@ -26,8 +26,28 @@ export const MIN_BOOT_GAP_MS = 3000;
 export const ROLES = { ADMIN:'admin', HR:'hr', MANAGER:'manager', EMPLOYEE:'employee' };
 export const ROLE_LABELS = { admin:'Administrator', hr:'Staf HR', manager:'Manajer', employee:'Karyawan' };
 
-// Recruitment
-export const STAGES = ['applied','screening','interview','offer','hired','rejected'];
+// Recruitment pipeline
+export const STAGES = [
+  'administrative_selection',
+  'psychotest',
+  'hr_interview',
+  'user_interview',
+  'medical_checkup',
+  'salary_negotiation',
+  'job_offer',
+  'rejected'
+];
+
+export const STAGE_LABELS = {
+  administrative_selection: 'Seleksi Administrasi',
+  psychotest: 'Psikotest',
+  hr_interview: 'Interview HR',
+  user_interview: 'Interview User',
+  medical_checkup: 'Medical Checkup',
+  salary_negotiation: 'Negosiasi Gaji',
+  job_offer: 'Penawaran Kerja',
+  rejected: 'Tidak Lolos'
+};
 
 // Employee movement
 export const MOVEMENT_LABELS = {
