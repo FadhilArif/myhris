@@ -28,6 +28,10 @@ alter table public.leave_types
 -- Menyimpan ringkasan sumber payroll agar slip dapat diaudit
 -- tanpa harus menebak sumber angka dari data transaksi.
 
+alter table public.payroll_runs
+  add column if not exists working_days_per_month numeric not null default 22,
+  add column if not exists deduct_attendance_absence boolean not null default false;
+
 alter table public.payslips
   add column if not exists attendance_summary jsonb not null default '{}'::jsonb,
   add column if not exists leave_summary jsonb not null default '{}'::jsonb,
@@ -36,6 +40,9 @@ alter table public.payslips
 -- =========================================================
 -- 3. INDEXES
 -- =========================================================
+
+create index if not exists payroll_runs_working_days_idx
+  on public.payroll_runs(working_days_per_month);
 
 create index if not exists leave_types_payroll_treatment_idx
   on public.leave_types(payroll_treatment);
