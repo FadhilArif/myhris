@@ -13,7 +13,7 @@ export const ROLE_PERMISSIONS = {
     actions: [
       'employee.view_all','employee.edit','employee.create',
       'attendance.view_all','shift.manage',
-      'leave.view_all','leave.manage','leave.approve',
+      'leave.view_all','leave.view_self','leave.create','leave.manage','leave.approve',
       'overtime.view_all','overtime.approve',
       'payroll.view','payroll.manage',
       'recruitment.manage','performance.manage',
@@ -32,7 +32,7 @@ export const ROLE_PERMISSIONS = {
     actions: [
       'employee.view_all','employee.edit','employee.create',
       'attendance.view_all','shift.manage',
-      'leave.view_all','leave.manage','leave.approve',
+      'leave.view_all','leave.view_self','leave.create','leave.manage','leave.approve',
       'overtime.view_all','overtime.approve',
       'payroll.view','payroll.manage',
       'recruitment.manage','performance.manage',
@@ -49,7 +49,7 @@ export const ROLE_PERMISSIONS = {
     actions: [
       'employee.view_team',
       'attendance.view_team',
-      'leave.view_team','leave.approve',
+      'leave.view_self','leave.create','leave.view_team','leave.approve',
       'overtime.view_team','overtime.approve',
       'performance.view_team','performance.manage_team',
       'training.view_team',
