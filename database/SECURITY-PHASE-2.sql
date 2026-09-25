@@ -56,6 +56,8 @@ insert into public.role_permissions (role, permission) values
 ('admin','attendance.view_all'),
 ('admin','shift.manage'),
 ('admin','leave.view_all'),
+('admin','leave.view_self'),
+('admin','leave.create'),
 ('admin','leave.manage'),
 ('admin','leave.approve'),
 ('admin','overtime.view_all'),
@@ -79,6 +81,8 @@ insert into public.role_permissions (role, permission) values
 ('hr','attendance.view_all'),
 ('hr','shift.manage'),
 ('hr','leave.view_all'),
+('hr','leave.view_self'),
+('hr','leave.create'),
 ('hr','leave.manage'),
 ('hr','leave.approve'),
 ('hr','overtime.view_all'),
@@ -95,6 +99,8 @@ insert into public.role_permissions (role, permission) values
 
 ('manager','employee.view_team'),
 ('manager','attendance.view_team'),
+('manager','leave.view_self'),
+('manager','leave.create'),
 ('manager','leave.view_team'),
 ('manager','leave.approve'),
 ('manager','overtime.view_team'),
@@ -318,6 +324,75 @@ using (false);
 -- =========================================================
 -- 4. TRANSACTION RLS
 -- =========================================================
+
+-- Leave requests: semua role tetap dapat mengajukan cuti untuk dirinya sendiri.
+-- Hak tambahan (view_all/view_team/approve/manage) tidak menghilangkan hak self-service.
+alter table public.leave_requests enable row level security;
+
+drop policy if exists "leave_requests_select" on public.leave_requests;
+create policy "leave_requests_select"
+on public.leave_requests for select
+to authenticated
+using (
+  public.has_permission('leave.view_all')
+  or (
+    public.has_permission('leave.view_team')
+    and exists (
+      select 1 from public.employees e
+      where e.id = leave_requests.employee_id
+        and e.department_id = public.auth_department_id()
+        and e.deleted_at is null
+    )
+  )
+  or (
+    public.has_permission('leave.view_self')
+    and employee_id = public.auth_employee_id()
+  )
+);
+
+drop policy if exists "leave_requests_insert_self" on public.leave_requests;
+create policy "leave_requests_insert_self"
+on public.leave_requests for insert
+to authenticated
+with check (
+  public.has_permission('leave.create')
+  and employee_id = public.auth_employee_id()
+);
+
+drop policy if exists "leave_requests_update_approver_or_owner" on public.leave_requests;
+create policy "leave_requests_update_approver_or_owner"
+on public.leave_requests for update
+to authenticated
+using (
+  public.has_permission('leave.manage')
+  or (
+    public.has_permission('leave.approve')
+    and exists (
+      select 1 from public.employees e
+      where e.id = leave_requests.employee_id
+        and e.department_id = public.auth_department_id()
+        and e.deleted_at is null
+    )
+  )
+)
+with check (
+  public.has_permission('leave.manage')
+  or (
+    public.has_permission('leave.approve')
+    and exists (
+      select 1 from public.employees e
+      where e.id = leave_requests.employee_id
+        and e.department_id = public.auth_department_id()
+        and e.deleted_at is null
+    )
+  )
+);
+
+drop policy if exists "leave_requests_delete_blocked" on public.leave_requests;
+create policy "leave_requests_delete_blocked"
+on public.leave_requests for delete
+to authenticated
+using (false);
 
 -- Leave balance: read own/team/admin; write only HR/Admin.
 alter table public.leave_balances enable row level security;
