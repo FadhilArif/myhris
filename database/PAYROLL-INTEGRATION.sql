@@ -123,8 +123,12 @@ create table if not exists public.payroll_corrections (
   amount numeric not null check (amount >= 0),
   reason text not null,
   status text not null default 'draft',
+  payment_status text not null default 'pending',
   payment_date date,
   payment_reference text,
+  payment_file_name text,
+  payment_file_generated_at timestamptz,
+  payment_file_generated_by uuid references auth.users(id),
   created_by uuid not null references auth.users(id),
   approved_by uuid references auth.users(id),
   approved_at timestamptz,
@@ -162,6 +166,17 @@ alter table public.payroll_special_runs
 alter table public.payroll_special_runs
   add constraint payroll_special_runs_payment_status_check
   check (payment_status in ('pending','generated','uploaded','processing','paid','failed'))
+  not valid;
+
+alter table public.payroll_corrections
+  add column if not exists payment_status text not null default 'pending';
+
+alter table public.payroll_corrections
+  drop constraint if exists payroll_corrections_payment_status_check;
+
+alter table public.payroll_corrections
+  add constraint payroll_corrections_payment_status_check
+  check (payment_status in ('pending','generated','uploaded','paid','failed'))
   not valid;
 
 alter table public.payroll_corrections
