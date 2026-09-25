@@ -100,22 +100,12 @@ using (
   or applicant_id = auth.uid()
 );
 
-create policy "candidates_insert_owner_or_recruitment"
+create policy "candidates_insert_recruitment_only"
 on public.candidates
 for insert
 to authenticated
 with check (
   public.has_permission('recruitment.manage')
-  or (
-    applicant_id = auth.uid()
-    and exists (
-      select 1
-      from public.job_postings jp
-      where jp.id = job_posting_id
-        and jp.status = 'open'
-        and jp.deleted_at is null
-    )
-  )
 );
 
 create policy "candidates_update_recruitment_only"
@@ -143,6 +133,149 @@ create index if not exists candidates_job_posting_id_idx
 
 create index if not exists candidates_applied_at_idx
   on public.candidates(applied_at desc);
+
+-- =========================================================
+-- 2A. DATABASE VALIDATION
+-- =========================================================
+-- NOT VALID menjaga migration tetap aman terhadap data lama.
+-- Constraint akan berlaku untuk INSERT/UPDATE baru.
+
+do $
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.job_postings'::regclass
+      and conname = 'job_postings_status_check'
+  ) then
+    alter table public.job_postings
+      add constraint job_postings_status_check
+      check (status in ('open','closed'))
+      not valid;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.candidates'::regclass
+      and conname = 'candidates_stage_check'
+  ) then
+    alter table public.candidates
+      add constraint candidates_stage_check
+      check (stage in ('applied','screening','interview','offer','hired','rejected'))
+      not valid;
+  end if;
+end $;
+
+-- =========================================================
+-- 2B. SECURE APPLICATION SUBMISSION
+-- =========================================================
+-- Lamaran kandidat tidak lagi menerima applicant_id/full_name/email/phone
+-- dari browser. RPC mengambil identitas dan profil dari server.
+-- Sekaligus mencegah spam sederhana dan duplicate application.
+
+create or replace function public.submit_candidate_application(
+  p_job_posting_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_user_id uuid;
+  v_job public.job_postings%rowtype;
+  v_profile public.candidate_profiles%rowtype;
+  v_application_id uuid;
+  v_recent_count integer;
+begin
+  v_user_id := auth.uid();
+
+  if v_user_id is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- Lock the job row so two simultaneous submissions for the
+  -- same job/account cannot both pass the duplicate check.
+  select *
+  into v_job
+  from public.job_postings
+  where id = p_job_posting_id
+  for update;
+
+  if not found
+     or v_job.deleted_at is not null
+     or v_job.status <> 'open' then
+    raise exception 'Lowongan tidak tersedia';
+  end if;
+
+  select *
+  into v_profile
+  from public.candidate_profiles
+  where id = v_user_id;
+
+  if not found
+     or nullif(trim(v_profile.full_name), '') is null
+     or nullif(trim(v_profile.phone), '') is null then
+    raise exception 'Lengkapi profil pelamar terlebih dahulu';
+  end if;
+
+  select count(*)
+  into v_recent_count
+  from public.candidates
+  where applicant_id = v_user_id
+    and applied_at >= now() - interval '24 hours';
+
+  if v_recent_count >= 20 then
+    raise exception 'Batas pengajuan lamaran sementara tercapai. Coba lagi nanti.';
+  end if;
+
+  if exists (
+    select 1
+    from public.candidates
+    where job_posting_id = p_job_posting_id
+      and applicant_id = v_user_id
+  ) then
+    raise exception 'Anda sudah melamar lowongan ini';
+  end if;
+
+  insert into public.candidates (
+    job_posting_id,
+    applicant_id,
+    full_name,
+    email,
+    phone,
+    stage
+  )
+  values (
+    p_job_posting_id,
+    v_user_id,
+    trim(v_profile.full_name),
+    coalesce(nullif(trim(v_profile.email), ''), (
+      select email from auth.users where id = v_user_id
+    )),
+    trim(v_profile.phone),
+    'applied'
+  )
+  returning id into v_application_id;
+
+  perform public.record_audit(
+    'recruitment.application_submit',
+    'candidates',
+    v_application_id,
+    null,
+    jsonb_build_object(
+      'job_posting_id', p_job_posting_id,
+      'stage', 'applied'
+    )
+  );
+
+  return v_application_id;
+end;
+$;
+
+revoke all on function public.submit_candidate_application(uuid) from public;
+grant execute on function public.submit_candidate_application(uuid) to authenticated;
 
 -- =========================================================
 -- 3. JOB POSTINGS
