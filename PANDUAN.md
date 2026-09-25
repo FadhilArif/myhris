@@ -647,3 +647,16 @@ Jalankan:
 `database/SECURITY-PHASE-2.sql`
 
 **Urutan aman:** backup → jalankan SQL → uji Admin → HR → Manager → Employee → uji modul kritis → lanjutkan deployment.
+
+## Per-Account Permission Override
+
+Standar akses MyHRIS berasal dari role: Admin, HRD, Manager, dan Employee. Admin dapat melakukan custom akses untuk akun tertentu melalui **Pengaturan → Hak Akses**.
+
+Pilihan custom per permission:
+- **Gunakan Default**: mengikuti role.
+- **Izinkan**: memberi akses tambahan untuk akun tersebut.
+- **Tolak**: memblokir permission tersebut walaupun role biasanya memilikinya.
+
+Override disimpan di tabel `permission_overrides` dan enforcement server-side tetap menggunakan `has_permission()`, sehingga custom akses bukan sekadar perubahan UI.
+
+Untuk mencegah admin mengunci akun yang sedang dipakai, akun admin aktif tidak dapat mengubah override dirinya sendiri dari UI.
