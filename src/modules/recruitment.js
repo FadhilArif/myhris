@@ -52,6 +52,7 @@ export async function renderRecruitment(){
     sbAll('departments')
   ]);
 
+  CACHE.jobPostings = jobs;
   c.innerHTML = `<div class="toolbar" style="gap:8px;flex-wrap:wrap;">
       <span style="flex:1;"></span>
       <button class="btn btn-outline" onclick="openCareerPage()">↗ Buka Halaman Karir</button>
