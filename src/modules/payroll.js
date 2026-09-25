@@ -749,6 +749,56 @@ export async function exportPayrollReport(){
   await logAudit('payroll.report_export','payroll_runs',runId,null,{file_name:name,row_count:slips.length});
   showToast('Laporan payroll berhasil diexport.');
 }
+export async function openThrManager(){
+  const runs=await sbAll('payroll_special_runs',{order:{col:'created_at',asc:false}});
+  const rows=runs.map(r=>'<tr><td>'+escapeHtml(r.title)+'</td><td>'+r.period_year+'</td><td>'+statusBadge(r.status)+'</td><td>'+fmtMoney(r.total_amount)+'</td><td>'+(r.payment_date?fmtDate(r.payment_date):'-')+'</td><td><button class="btn btn-outline btn-sm" onclick="openThrRun(\''+r.id+'\')">Kelola</button></td></tr>').join('')||'<tr><td colspan="6" class="empty-state">Belum ada batch THR.</td></tr>';
+  openModal('<div style="width:min(980px,calc(100vw - 32px));max-height:90vh;overflow:auto;"><div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><h3>THR / Special Payroll</h3><div style="font-size:12px;color:var(--text-muted);">Batch THR dipisahkan dari payroll bulanan.</div></div><button class="btn btn-primary" onclick="openThrForm()">+ Buat THR</button></div><div class="card" style="padding:0;margin-top:14px;overflow:auto;"><table><thead><tr><th>Judul</th><th>Tahun</th><th>Status</th><th>Total</th><th>Bayar</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline" onclick="closeModal()">Tutup</button></div></div>');
+}
+
+export function openThrForm(){
+  const y=new Date().getFullYear();
+  openModal('<h3>Buat Batch THR</h3><div class="field"><label>Judul</label><input id="thr-title" value="THR '+y+'"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div class="field"><label>Tahun</label><input id="thr-year" type="number" value="'+y+'"></div><div class="field"><label>Tanggal Pembayaran</label><input id="thr-payment" type="date"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div class="field"><label>Pengali Gaji Pokok</label><input id="thr-multiplier" type="number" min="0" step="0.01" value="1"></div><div class="field"><label>Prorata Masa Kerja?</label><select id="thr-prorate"><option value="true">Ya</option><option value="false">Tidak</option></select></div></div><div class="field"><label>Catatan Kebijakan Internal</label><textarea id="thr-notes" rows="3"></textarea></div><div style="display:flex;justify-content:flex-end;"><button class="btn btn-primary" onclick="saveThrRun()">Buat Batch</button></div>');
+}
+
+export async function saveThrRun(){
+  const title=el('thr-title').value.trim(),year=Number(el('thr-year').value),payment=el('thr-payment').value||null,multiplier=Number(el('thr-multiplier').value)||1,prorate=el('thr-prorate').value==='true',notes=el('thr-notes').value.trim();
+  if(!title||!year){showToast('Judul dan tahun wajib.',true);return;}
+  const {data,error}=await sb.from('payroll_special_runs').insert({run_type:'thr',title,period_year:year,payment_date:payment,status:'draft',base_multiplier:multiplier,prorate_enabled:prorate,notes:notes||null}).select().single();
+  if(error){showToast(error.message,true);return;}
+  await logAudit('payroll.thr_create','payroll_special_runs',data.id,null,{title,year});
+  closeModal();openThrManager();
+}
+
+export async function openThrRun(runId){
+  const runs=await sbAll('payroll_special_runs',{eq:{id:runId}});const run=runs[0];if(!run){showToast('Batch THR tidak ditemukan.',true);return;}
+  const [items,emps]=await Promise.all([sbAll('payroll_special_items',{eq:{special_run_id:runId}}),sbAll('employees',{eq:{employment_status:'active'}})]);
+  const total=items.reduce((s,i)=>s+Number(i.amount||0),0);
+  const rows=items.map(i=>{const e=emps.find(x=>x.id===i.employee_id)||{};return '<tr><td>'+escapeHtml(e.full_name||'-')+'</td><td>'+fmtMoney(i.base_salary)+'</td><td>'+i.service_months+'/'+i.entitlement_months+'</td><td><b>'+fmtMoney(i.amount)+'</b></td></tr>';}).join('')||'<tr><td colspan="4" class="empty-state">Belum dihitung.</td></tr>';
+  const actions=(['draft','calculated'].includes(run.status)?'<button class="btn btn-primary btn-sm" onclick="calculateThr(\''+runId+'\')">↻ Hitung</button>':'')+(run.status==='calculated'?'<button class="btn btn-outline btn-sm" onclick="approveThr(\''+runId+'\')">✓ Approve</button>':'')+(run.status==='approved'?'<button class="btn btn-outline btn-sm" onclick="generateThrPaymentFile(\''+runId+'\')">⇩ File Pembayaran</button>':'')+(run.status==='approved'&&run.payment_status==='generated'?'<button class="btn btn-outline btn-sm" onclick="markThrUploaded(\''+runId+'\')">✓ Diunggah</button>':'')+(run.status==='approved'&&['uploaded','processing'].includes(run.payment_status)?'<button class="btn btn-primary btn-sm" onclick="markThrPaid(\''+runId+'\')">✓ Dibayar</button>':'')+(run.status==='paid'?'<button class="btn btn-outline btn-sm" onclick="lockThr(\''+runId+'\')">🔒 Kunci</button>':'');
+  openModal('<div style="width:min(980px,calc(100vw - 32px));max-height:90vh;overflow:auto;"><h3>'+escapeHtml(run.title)+'</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0;">'+statusBadge(run.status)+statusBadge(run.payment_status||'pending')+'</div><div class="grid grid-3"><div class="stat-card"><div class="stat-num">'+items.length+'</div><div class="stat-label">Karyawan</div></div><div class="stat-card"><div class="stat-num">'+fmtMoney(total)+'</div><div class="stat-label">Total THR</div></div><div class="stat-card"><div class="stat-num">'+run.base_multiplier+'x</div><div class="stat-label">Pengali</div></div></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;">'+actions+'</div><div class="card" style="padding:0;overflow:auto;"><table><thead><tr><th>Nama</th><th>Gaji Pokok</th><th>Masa Kerja</th><th>THR</th></tr></thead><tbody>'+rows+'</tbody></table></div><div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn btn-outline" onclick="openThrManager()">Kembali</button></div></div>');
+}
+
+export async function calculateThr(runId){
+  const rows=await sbAll('payroll_special_runs',{eq:{id:runId}});const run=rows[0];if(!run||!['draft','calculated'].includes(run.status)){showToast('THR tidak dapat dihitung.',true);return;}
+  const emps=await sbAll('employees',{eq:{employment_status:'active'}});if(!emps.length){showToast('Tidak ada karyawan aktif.',true);return;}
+  const items=emps.map(e=>{const join=e.join_date?new Date(e.join_date):null;const start=new Date(run.period_year,0,1);let months=12;if(join&&join>start){months=Math.max(0,Math.min(12,(run.period_year-join.getFullYear())*12+(11-join.getMonth())+1));}const base=Number(e.basic_salary||0);const amount=Math.round(run.prorate_enabled?base*Number(run.base_multiplier||1)*(months/12):base*Number(run.base_multiplier||1));return {special_run_id:runId,employee_id:e.id,base_salary:base,service_months:months,entitlement_months:12,amount,notes:null};});
+  await sb.from('payroll_special_items').delete().eq('special_run_id',runId);
+  const {error}=await sb.from('payroll_special_items').insert(items);if(error){showToast(error.message,true);return;}
+  const total=items.reduce((s,i)=>s+i.amount,0);
+  await sb.from('payroll_special_runs').update({status:'calculated',total_amount:total,generated_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.thr_calculate','payroll_special_runs',runId,null,{employee_count:items.length,total});
+  openThrRun(runId);
+}
+
+export async function approveThr(runId){const {data:run}=await sb.from('payroll_special_runs').select('*').eq('id',runId).maybeSingle();if(!run||run.status!=='calculated'){showToast('THR belum dihitung.',true);return;}if(!confirm('Approve batch THR ini?'))return;await sb.from('payroll_special_runs').update({status:'approved',approved_by:state.currentUser?.id||null,approved_at:new Date().toISOString()}).eq('id',runId);await logAudit('payroll.thr_approve','payroll_special_runs',runId,{status:'calculated'},{status:'approved'});openThrRun(runId);}
+
+export async function generateThrPaymentFile(runId){const {data:run}=await sb.from('payroll_special_runs').select('*').eq('id',runId).maybeSingle();if(!run||run.status!=='approved'){showToast('THR harus disetujui.',true);return;}const [items,emps]=await Promise.all([sbAll('payroll_special_items',{eq:{special_run_id:runId}}),sbAll('employees')]);const missing=items.map(i=>emps.find(e=>e.id===i.employee_id)).filter(e=>!e?.bank_name||!e?.bank_account_number);if(missing.length){showToast('Ada penerima THR tanpa bank/rekening.',true);return;}const header=['employee_code','employee_name','bank_name','bank_account_number','amount','payment_date','reference','description'].map(csvCell).join(',');const rows=items.map(i=>{const e=emps.find(x=>x.id===i.employee_id)||{};return [e.employee_code||'',e.full_name||'',e.bank_name||'',e.bank_account_number||'',Math.round(i.amount||0),run.payment_date||'', 'THR-'+run.period_year+'-'+(e.employee_code||e.id),run.title].map(csvCell).join(',');});const csv='\uFEFF'+[header,...rows].join('\r\n');const name='THR_'+run.period_year+'.csv';const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);await sb.from('payroll_special_runs').update({payment_status:'generated',payment_file_name:name,payment_file_generated_at:new Date().toISOString(),payment_file_generated_by:state.currentUser?.id||null}).eq('id',runId);openThrRun(runId);}
+
+export async function markThrUploaded(runId){const {data:run}=await sb.from('payroll_special_runs').select('*').eq('id',runId).maybeSingle();if(!run||run.status!=='approved'||run.payment_status!=='generated'){showToast('Generate file terlebih dahulu.',true);return;}const ref=prompt('Reference bank (opsional):',run.payment_reference||'');if(ref===null)return;await sb.from('payroll_special_runs').update({payment_status:'uploaded',payment_reference:ref.trim()||null}).eq('id',runId);openThrRun(runId);}
+
+export async function markThrPaid(runId){const {data:run}=await sb.from('payroll_special_runs').select('*').eq('id',runId).maybeSingle();if(!run||run.status!=='approved'||!['uploaded','processing'].includes(run.payment_status)){showToast('THR belum siap dibayar.',true);return;}if(!confirm('Tandai THR sudah dibayar?'))return;await sb.from('payroll_special_runs').update({status:'paid',payment_status:'paid',paid_at:new Date().toISOString()}).eq('id',runId);openThrRun(runId);}
+
+export async function lockThr(runId){const {data:run}=await sb.from('payroll_special_runs').select('status').eq('id',runId).maybeSingle();if(run?.status!=='paid'){showToast('THR harus dibayar dahulu.',true);return;}if(!confirm('Kunci batch THR?'))return;await sb.from('payroll_special_runs').update({status:'locked',locked_at:new Date().toISOString()}).eq('id',runId);openThrRun(runId);}
 export async function renderMyPayslip(){
   const c = el('content');
   const ME = state.me;
