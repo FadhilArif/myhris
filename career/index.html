@@ -51,6 +51,8 @@
   td{padding:10px;border-top:1px solid var(--border);}
 </style>
 </head>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
 <body>
 
 <div class="topbar">
@@ -95,6 +97,15 @@ function openModal(html){ el('modal-root').innerHTML = `<div class="modal-backdr
 function closeModal(){ el('modal-root').innerHTML = ''; }
 
 const STAGE_LABEL = { applied:'Melamar', screening:'Screening', interview:'Interview', offer:'Penawaran', hired:'Diterima', rejected:'Tidak Lolos' };
+
+function copyCareerPageLink(){
+  const url = new URL('/career/', window.location.origin).href;
+  navigator.clipboard.writeText(url).then(()=>{
+    showToast('Link halaman karir disalin: '+url);
+  }).catch(()=>{
+    prompt('Salin link halaman karir ini secara manual:', url);
+  });
+}
 
 let initialLoadDone = false;
 let _loadingAll = false;      // Lock: cegah loadAll() berjalan dobel bersamaan
@@ -290,7 +301,6 @@ async function applyJob(jobId){
 
 init();
 </script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
