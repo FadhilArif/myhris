@@ -684,3 +684,68 @@ PDF, JPG, PNG, WEBP, DOC, DOCX, XLS, XLSX.
 
 ### Catatan Migrasi
 Dokumen lama yang memiliki URL public di-backfill ke `storage_path` sebelum bucket dibuat private. Setelah migrasi, frontend menggunakan signed URL sementara untuk membuka file.
+
+
+## 🔐 Security Phase 4 — Recruitment Privacy
+
+Branch pengembangan: `Security-Phase-4`
+
+Fase ini mengisolasi data pelamar dari akses publik dan memperbaiki alur halaman karir.
+
+### Candidate Profile Privacy
+
+Tabel `candidate_profiles` sekarang:
+- hanya dapat dibaca oleh pemilik akun pelamar atau akun dengan permission `recruitment.manage`;
+- hanya dapat dibuat/diubah oleh pemilik akun;
+- tidak dapat dihapus dari browser.
+
+Data seperti nama, telepon, email, dan link CV tidak lagi dapat dibaca oleh publik hanya karena diketahui endpoint tabelnya.
+
+### Candidate / Application Privacy
+
+Tabel `candidates` sekarang:
+- HR/Admin atau akun yang memiliki `recruitment.manage` dapat melihat dan mengelola kandidat;
+- pelamar hanya dapat melihat lamaran miliknya sendiri;
+- pelamar hanya dapat membuat lamaran menggunakan `applicant_id = auth.uid()`;
+- pelamar hanya dapat melamar lowongan yang masih berstatus `open`;
+- perubahan tahap kandidat dan penghapusan kandidat dari browser hanya boleh dilakukan oleh pengguna dengan `recruitment.manage`;
+- delete permanen kandidat diblokir agar histori rekrutmen tidak hilang.
+
+### Public Career Page
+
+Lowongan yang berstatus `open` dan belum di-soft-delete dapat dibaca oleh halaman karir publik.
+
+Nama departemen aktif dapat dibaca publik hanya untuk kebutuhan label lowongan. Data karyawan maupun data kandidat tidak ikut dibuka.
+
+### Recruitment Audit
+
+Operasi internal penting pada rekrutmen kini dicatat melalui `record_audit`, antara lain:
+- membuat lowongan;
+- menutup / membuka kembali lowongan;
+- mengarsipkan lowongan;
+- membuat kandidat;
+- mengubah tahap kandidat;
+- mengonversi kandidat menjadi karyawan.
+
+Pengarsipan lowongan memakai `soft_delete_master('job_postings', ...)`, sehingga data kandidat tidak ikut dihapus.
+
+### Migration
+
+Jalankan:
+
+```
+database/SECURITY-PHASE-4.sql
+```
+
+Urutan aman:
+```
+backup
+→ jalankan SQL Phase 4
+→ login sebagai Admin/HR
+→ tes halaman Recruitment
+→ tes halaman Career sebagai publik
+→ tes akun pelamar
+→ pastikan pelamar A tidak dapat membaca lamaran pelamar B
+```
+
+Catatan: fase berikutnya akan menangani database constraints/validation, abuse protection, dan security monitoring secara bertahap.
