@@ -125,6 +125,28 @@
 
   .modal-backdrop{position:fixed;inset:0;background:rgba(20,30,27,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
   .modal{background:#fff;border-radius:12px;padding:22px;width:480px;max-width:100%;max-height:88vh;overflow:auto;}
+  .modal.permission-modal-wide{
+    width:min(980px,calc(100vw - 32px));
+    max-width:none;
+    max-height:92vh;
+    padding:0;
+    overflow:hidden;
+  }
+  .modal.permission-modal-wide .permission-modal-shell{
+    width:100% !important;
+    max-width:none !important;
+    max-height:92vh;
+  }
+  @media(max-width:700px){
+    .modal.permission-modal-wide{
+      width:calc(100vw - 20px);
+      max-height:94vh;
+    }
+    .modal.permission-modal-wide .permission-modal-shell{
+      width:100% !important;
+      border-radius:12px !important;
+    }
+  }
   .modal h3{margin:0 0 16px;}
 
   .empty-state{text-align:center;padding:40px 10px;color:var(--text-muted);}
