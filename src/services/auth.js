@@ -77,6 +77,7 @@ export async function doLogin(){
 export async function doLogout(){
   try { await sb.auth.signOut(); } catch(e){}
   state.currentUser = null; state.profile = null; state.me = null;
+  state.permissionOverrides = {};
   state.bootedUserId = null;
   state.booting = false;
   el('app').style.display = 'none';
@@ -121,6 +122,22 @@ export async function bootAfterLogin(user){
 
   state.profile = profile;
   state.me = null;
+  state.permissionOverrides = {};
+
+  try {
+    const { data: overrides, error: overrideError } = await sb
+      .from('permission_overrides')
+      .select('permission, effect')
+      .eq('user_id', user.id);
+
+    if(!overrideError && Array.isArray(overrides)){
+      state.permissionOverrides = Object.fromEntries(
+        overrides.map(row => [row.permission, !!row.effect])
+      );
+    }
+  } catch(e){
+    console.warn('[boot] permission overrides fetch:', e);
+  }
 
   if(state.profile.employee_id){
     try {
