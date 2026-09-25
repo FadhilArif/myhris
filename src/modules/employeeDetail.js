@@ -1,20 +1,33 @@
-import { state, CACHE, isHR } from '../state/store.js';
+import { state, CACHE, isHR, isManager } from '../state/store.js';
 import { sbAll, sbAllQuiet } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge, handleDocFileSelect, clearDocFile } from '../utils/dom.js';
 import { fmtMoney, fmtDate, fmtDateTime, formatNumberInput, formatFileSize, getFileIcon } from '../utils/format.js';
 import { MOVEMENT_LABELS } from '../config/constants.js';
 import { logAudit } from '../services/audit.js';
+import { isInManagerScope } from '../config/permissions.js';
 
 export const DETAIL_TABS = [
-  { id:'overview', label:'Overview' }, { id:'employment', label:'Employment' },
-  { id:'attendance', label:'Absensi' }, { id:'leave', label:'Cuti' },
-  { id:'payroll', label:'Payroll' }, { id:'performance', label:'Kinerja' },
-  { id:'training', label:'Training' }, { id:'movement', label:'Movement' },
-  { id:'documents', label:'Dokumen' }, { id:'login-history', label:'Riwayat Login' }, { id:'audit', label:'Audit', hrOnly:true }
+  { id:'overview', label:'Overview' },
+  { id:'employment', label:'Employment', hrOnly:true },
+  { id:'attendance', label:'Absensi' },
+  { id:'leave', label:'Cuti' },
+  { id:'payroll', label:'Payroll', hrOnly:true },
+  { id:'performance', label:'Kinerja' },
+  { id:'training', label:'Training' },
+  { id:'movement', label:'Movement', hrOnly:true },
+  { id:'documents', label:'Dokumen' },
+  { id:'login-history', label:'Riwayat Login' },
+  { id:'audit', label:'Audit', hrOnly:true }
 ];
 
 export function canViewEmployeeDetail(employeeId){
-  return isHR() || (state.me && state.me.id === employeeId);
+  if(state.me && state.me.id === employeeId) return true;
+  if(isHR()) return true;
+  if(isManager()){
+    const target = CACHE.employees.find(e => e.id === employeeId);
+    return !!(target && isInManagerScope(target));
+  }
+  return false;
 }
 
 export async function renderEmployeeDetail(employeeId){
@@ -30,7 +43,7 @@ export async function renderEmployeeDetail(employeeId){
   const initials = emp.full_name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
   const avatarHtml = emp.photo_url ? `<img src="${escapeHtml(emp.photo_url)}" alt="">` : (initials || '?');
   const backRoute = isHR() ? 'employees' : 'directory';
-  const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR());
+  const tabs = DETAIL_TABS.filter(t => !t.hrOnly || isHR() || (state.me && state.me.id === employeeId));
 
   c.innerHTML = `
     <div class="emp-detail-header">
