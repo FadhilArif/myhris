@@ -21,6 +21,14 @@ create index if not exists employees_bank_name_idx
 -- =========================================================
 
 alter table public.payroll_runs
+  add column if not exists payment_status text not null default 'pending',
+  add column if not exists payment_file_name text,
+  add column if not exists payment_file_generated_at timestamptz,
+  add column if not exists payment_file_generated_by uuid references auth.users(id),
+  add column if not exists payment_uploaded_at timestamptz,
+  add column if not exists payment_uploaded_by uuid references auth.users(id),
+  add column if not exists payment_reference text,
+  add column if not exists payment_notes text,
   add column if not exists attendance_cutoff_start date,
   add column if not exists attendance_cutoff_end date,
   add column if not exists payment_date date,
@@ -160,8 +168,30 @@ to authenticated
 using (false);
 
 -- =========================================================
--- 5. PAYROLL STATUS VALIDATION
+-- 5. PAYMENT STATUS VALIDATION
 -- =========================================================
+
+alter table public.payroll_runs
+  drop constraint if exists payroll_runs_payment_status_check;
+
+alter table public.payroll_runs
+  add constraint payroll_runs_payment_status_check
+  check (
+    payment_status in (
+      'pending',
+      'generated',
+      'uploaded',
+      'processing',
+      'paid',
+      'failed'
+    )
+  )
+  not valid;
+
+-- =========================================================
+-- 5A. PAYROLL STATUS VALIDATION
+-- =========================================================
+
 
 alter table public.payroll_runs
   drop constraint if exists payroll_runs_status_check;
