@@ -19,6 +19,7 @@ import { ROLE_LABELS, STAGES, MOVEMENT_LABELS } from './config/constants.js';
 import { can, getRole } from './config/permissions.js';
 import { navigate, registerRoute } from './routes/router.js';
 import { buildNav } from './routes/navigation.js';
+import { initSessionSecurity } from './services/sessionSecurity.js';
 import * as AuthMod from './modules/auth.js';
 
 
@@ -174,4 +175,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Auth module installs the login/logout handlers immediately.
   AuthMod.initAuth();
+  initSessionSecurity();
 });
