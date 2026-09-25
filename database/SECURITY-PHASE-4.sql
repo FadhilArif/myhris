@@ -1,15 +1,30 @@
 -- MyHRIS Security Phase 4
--- Recruitment privacy + public career read + candidate access isolation.
--- Jalankan setelah SECURITY-PHASE-2.sql / Security Phase 3 sudah diterapkan.
--- SQL ini sengaja dibuat idempotent sebisa mungkin.
+-- Recruitment privacy + detailed career information + application journey tracking.
+-- Jalankan setelah SECURITY-PHASE-2.sql / Security Phase 3.
+-- Idempotent sebisa mungkin.
 
 begin;
 
 -- =========================================================
--- 1. CANDIDATE PROFILES
+-- 1. RECRUITMENT DATA MODEL
 -- =========================================================
--- Profil pelamar hanya boleh dibaca oleh pemilik akun atau
--- pengguna yang memiliki permission recruitment.manage.
+
+alter table public.job_postings
+  add column if not exists requirements text,
+  add column if not exists responsibilities text,
+  add column if not exists placement text,
+  add column if not exists work_system text default 'on_site',
+  add column if not exists salary_min numeric,
+  add column if not exists salary_max numeric;
+
+-- Normalisasi nilai lama / kosong.
+update public.job_postings
+set work_system = 'on_site'
+where work_system is null or trim(work_system) = '';
+
+-- =========================================================
+-- 2. CANDIDATE PROFILES PRIVACY
+-- =========================================================
 
 alter table public.candidate_profiles enable row level security;
 
@@ -51,12 +66,8 @@ create policy "candidate_profiles_update_owner"
 on public.candidate_profiles
 for update
 to authenticated
-using (
-  id = auth.uid()
-)
-with check (
-  id = auth.uid()
-);
+using (id = auth.uid())
+with check (id = auth.uid());
 
 create policy "candidate_profiles_delete_blocked"
 on public.candidate_profiles
@@ -65,12 +76,8 @@ to authenticated
 using (false);
 
 -- =========================================================
--- 2. CANDIDATES / APPLICATIONS
+-- 3. CANDIDATES / APPLICATIONS PRIVACY
 -- =========================================================
--- HR/Admin/recruitment manager dapat mengelola kandidat.
--- Pelamar hanya dapat melihat lamaran miliknya sendiri.
--- Browser tidak boleh mengubah stage atau menghapus aplikasi.
--- Pelamar hanya boleh membuat lamaran untuk lowongan yang masih open.
 
 alter table public.candidates enable row level security;
 
@@ -112,12 +119,8 @@ create policy "candidates_update_recruitment_only"
 on public.candidates
 for update
 to authenticated
-using (
-  public.has_permission('recruitment.manage')
-)
-with check (
-  public.has_permission('recruitment.manage')
-);
+using (public.has_permission('recruitment.manage'))
+with check (public.has_permission('recruitment.manage'));
 
 create policy "candidates_delete_blocked"
 on public.candidates
@@ -135,44 +138,133 @@ create index if not exists candidates_applied_at_idx
   on public.candidates(applied_at desc);
 
 -- =========================================================
--- 2A. DATABASE VALIDATION
+-- 4. APPLICATION STAGE HISTORY
 -- =========================================================
--- NOT VALID menjaga migration tetap aman terhadap data lama.
--- Constraint akan berlaku untuk INSERT/UPDATE baru.
 
-do $phase4$
-begin
-  if not exists (
+create table if not exists public.candidate_stage_history (
+  id uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  stage text not null,
+  notes text,
+  changed_by uuid references auth.users(id),
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists candidate_stage_history_candidate_idx
+  on public.candidate_stage_history(candidate_id, changed_at desc);
+
+create index if not exists candidate_stage_history_stage_idx
+  on public.candidate_stage_history(stage);
+
+alter table public.candidate_stage_history enable row level security;
+
+drop policy if exists "candidate_stage_history_select" on public.candidate_stage_history;
+create policy "candidate_stage_history_select"
+on public.candidate_stage_history
+for select
+to authenticated
+using (
+  public.has_permission('recruitment.manage')
+  or exists (
     select 1
-    from pg_constraint
-    where conrelid = 'public.job_postings'::regclass
-      and conname = 'job_postings_status_check'
-  ) then
-    alter table public.job_postings
-      add constraint job_postings_status_check
-      check (status in ('open','closed'))
-      not valid;
-  end if;
+    from public.candidates c
+    where c.id = candidate_id
+      and c.applicant_id = auth.uid()
+  )
+);
 
-  if not exists (
-    select 1
-    from pg_constraint
-    where conrelid = 'public.candidates'::regclass
-      and conname = 'candidates_stage_check'
-  ) then
-    alter table public.candidates
-      add constraint candidates_stage_check
-      check (stage in ('applied','screening','interview','offer','hired','rejected'))
-      not valid;
-  end if;
-end $phase4$;
+drop policy if exists "candidate_stage_history_no_insert" on public.candidate_stage_history;
+create policy "candidate_stage_history_no_insert"
+on public.candidate_stage_history
+for insert
+to authenticated
+with check (false);
+
+drop policy if exists "candidate_stage_history_no_update" on public.candidate_stage_history;
+create policy "candidate_stage_history_no_update"
+on public.candidate_stage_history
+for update
+to authenticated
+using (false)
+with check (false);
+
+drop policy if exists "candidate_stage_history_no_delete" on public.candidate_stage_history;
+create policy "candidate_stage_history_no_delete"
+on public.candidate_stage_history
+for delete
+to authenticated
+using (false);
 
 -- =========================================================
--- 2B. SECURE APPLICATION SUBMISSION
+-- 5. NORMALIZE STAGE VALUES
 -- =========================================================
--- Lamaran kandidat tidak lagi menerima applicant_id/full_name/email/phone
--- dari browser. RPC mengambil identitas dan profil dari server.
--- Sekaligus mencegah spam sederhana dan duplicate application.
+
+update public.candidates
+set stage = case stage
+  when 'applied' then 'administrative_selection'
+  when 'screening' then 'administrative_selection'
+  when 'interview' then 'hr_interview'
+  when 'offer' then 'job_offer'
+  when 'hired' then 'job_offer'
+  when 'rejected' then 'rejected'
+  when 'administrative_selection' then 'administrative_selection'
+  when 'psychotest' then 'psychotest'
+  when 'hr_interview' then 'hr_interview'
+  when 'user_interview' then 'user_interview'
+  when 'medical_checkup' then 'medical_checkup'
+  when 'salary_negotiation' then 'salary_negotiation'
+  when 'job_offer' then 'job_offer'
+  else 'administrative_selection'
+end;
+
+alter table public.candidates
+  drop constraint if exists candidates_stage_check;
+
+alter table public.candidates
+  add constraint candidates_stage_check
+  check (
+    stage in (
+      'administrative_selection',
+      'psychotest',
+      'hr_interview',
+      'user_interview',
+      'medical_checkup',
+      'salary_negotiation',
+      'job_offer',
+      'rejected'
+    )
+  )
+  not valid;
+
+alter table public.job_postings
+  drop constraint if exists job_postings_status_check,
+  drop constraint if exists job_postings_work_system_check,
+  drop constraint if exists job_postings_salary_range_check;
+
+alter table public.job_postings
+  add constraint job_postings_status_check
+  check (status in ('open','closed'))
+  not valid;
+
+alter table public.job_postings
+  add constraint job_postings_work_system_check
+  check (work_system in ('on_site','hybrid','remote'))
+  not valid;
+
+alter table public.job_postings
+  add constraint job_postings_salary_range_check
+  check (
+    salary_min is null
+    or (
+      salary_min >= 0
+      and (salary_max is null or salary_max >= salary_min)
+    )
+  )
+  not valid;
+
+-- =========================================================
+-- 6. SECURE APPLICATION SUBMISSION
+-- =========================================================
 
 create or replace function public.submit_candidate_application(
   p_job_posting_id uuid
@@ -181,7 +273,8 @@ returns uuid
 language plpgsql
 security definer
 set search_path = public
-as 'declare
+as $fn$
+declare
   v_user_id uuid;
   v_job public.job_postings%rowtype;
   v_profile public.candidate_profiles%rowtype;
@@ -191,11 +284,9 @@ begin
   v_user_id := auth.uid();
 
   if v_user_id is null then
-    raise exception ''Not authenticated'';
+    raise exception 'Not authenticated';
   end if;
 
-  -- Lock the job row so two simultaneous submissions for the
-  -- same job/account cannot both pass the duplicate check.
   select *
   into v_job
   from public.job_postings
@@ -204,8 +295,8 @@ begin
 
   if not found
      or v_job.deleted_at is not null
-     or v_job.status <> ''open'' then
-    raise exception ''Lowongan tidak tersedia'';
+     or v_job.status <> 'open' then
+    raise exception 'Lowongan tidak tersedia';
   end if;
 
   select *
@@ -214,19 +305,19 @@ begin
   where id = v_user_id;
 
   if not found
-     or nullif(trim(v_profile.full_name), '''') is null
-     or nullif(trim(v_profile.phone), '''') is null then
-    raise exception ''Lengkapi profil pelamar terlebih dahulu'';
+     or nullif(trim(v_profile.full_name), '') is null
+     or nullif(trim(v_profile.phone), '') is null then
+    raise exception 'Lengkapi profil pelamar terlebih dahulu';
   end if;
 
   select count(*)
   into v_recent_count
   from public.candidates
   where applicant_id = v_user_id
-    and applied_at >= now() - interval ''24 hours'';
+    and applied_at >= now() - interval '24 hours';
 
   if v_recent_count >= 20 then
-    raise exception ''Batas pengajuan lamaran sementara tercapai. Coba lagi nanti.'';
+    raise exception 'Batas pengajuan lamaran sementara tercapai. Coba lagi nanti.';
   end if;
 
   if exists (
@@ -235,7 +326,7 @@ begin
     where job_posting_id = p_job_posting_id
       and applicant_id = v_user_id
   ) then
-    raise exception ''Anda sudah melamar lowongan ini'';
+    raise exception 'Anda sudah melamar lowongan ini';
   end if;
 
   insert into public.candidates (
@@ -250,38 +341,150 @@ begin
     p_job_posting_id,
     v_user_id,
     trim(v_profile.full_name),
-    coalesce(nullif(trim(v_profile.email), ''''), (
+    coalesce(nullif(trim(v_profile.email), ''), (
       select email from auth.users where id = v_user_id
     )),
     trim(v_profile.phone),
-    ''applied''
+    'administrative_selection'
   )
   returning id into v_application_id;
 
+  insert into public.candidate_stage_history (
+    candidate_id,
+    stage,
+    notes,
+    changed_by
+  )
+  values (
+    v_application_id,
+    'administrative_selection',
+    'Lamaran diterima dan masuk proses seleksi administrasi.',
+    v_user_id
+  );
+
   perform public.record_audit(
-    ''recruitment.application_submit'',
-    ''candidates'',
+    'recruitment.application_submit',
+    'candidates',
     v_application_id,
     null,
     jsonb_build_object(
-      ''job_posting_id'', p_job_posting_id,
-      ''stage'', ''applied''
+      'job_posting_id', p_job_posting_id,
+      'stage', 'administrative_selection'
     )
   );
 
   return v_application_id;
-end;';
+end;
+$fn$;
 
 revoke all on function public.submit_candidate_application(uuid) from public;
 grant execute on function public.submit_candidate_application(uuid) to authenticated;
 
 -- =========================================================
--- 3. JOB POSTINGS
+-- 7. SECURE STAGE UPDATE
 -- =========================================================
--- Lowongan terbuka memang perlu dapat dibaca halaman karir publik.
--- Data kandidat tetap terisolasi oleh RLS candidates di atas.
--- Pengelolaan lowongan hanya lewat recruitment.manage.
--- Delete permanen tetap diblokir; UI memakai soft delete RPC.
+
+create or replace function public.update_candidate_stage(
+  p_candidate_id uuid,
+  p_stage text,
+  p_notes text default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_old_stage text;
+  v_job_id uuid;
+begin
+  if auth.uid() is null or not public.has_permission('recruitment.manage') then
+    raise exception 'Not authorized';
+  end if;
+
+  if p_stage not in (
+    'administrative_selection',
+    'psychotest',
+    'hr_interview',
+    'user_interview',
+    'medical_checkup',
+    'salary_negotiation',
+    'job_offer',
+    'rejected'
+  ) then
+    raise exception 'Tahap kandidat tidak valid';
+  end if;
+
+  select stage, job_posting_id
+  into v_old_stage, v_job_id
+  from public.candidates
+  where id = p_candidate_id;
+
+  if not found then
+    raise exception 'Kandidat tidak ditemukan';
+  end if;
+
+  update public.candidates
+  set stage = p_stage
+  where id = p_candidate_id;
+
+  if v_old_stage is distinct from p_stage then
+    insert into public.candidate_stage_history (
+      candidate_id,
+      stage,
+      notes,
+      changed_by
+    )
+    values (
+      p_candidate_id,
+      p_stage,
+      left(nullif(trim(coalesce(p_notes, '')), ''), 1000),
+      auth.uid()
+    );
+
+    perform public.record_audit(
+      'recruitment.candidate_stage_update',
+      'candidates',
+      p_candidate_id,
+      jsonb_build_object('stage', v_old_stage),
+      jsonb_build_object(
+        'stage', p_stage,
+        'notes', left(nullif(trim(coalesce(p_notes, '')), ''), 1000)
+      )
+    );
+  end if;
+
+  return true;
+end;
+$fn$;
+
+revoke all on function public.update_candidate_stage(uuid,text,text) from public;
+grant execute on function public.update_candidate_stage(uuid,text,text) to authenticated;
+
+-- Seed history for existing candidates without any timeline.
+insert into public.candidate_stage_history (
+  candidate_id,
+  stage,
+  notes,
+  changed_by,
+  changed_at
+)
+select
+  c.id,
+  c.stage,
+  'Riwayat awal dari data kandidat yang sudah ada.',
+  null,
+  coalesce(c.applied_at, now())
+from public.candidates c
+where not exists (
+  select 1
+  from public.candidate_stage_history h
+  where h.candidate_id = c.id
+);
+
+-- =========================================================
+-- 8. JOB POSTINGS RLS
+-- =========================================================
 
 alter table public.job_postings enable row level security;
 
@@ -321,12 +524,8 @@ create policy "job_postings_update_recruitment"
 on public.job_postings
 for update
 to authenticated
-using (
-  public.has_permission('recruitment.manage')
-)
-with check (
-  public.has_permission('recruitment.manage')
-);
+using (public.has_permission('recruitment.manage'))
+with check (public.has_permission('recruitment.manage'));
 
 drop policy if exists "job_postings_delete_blocked" on public.job_postings;
 create policy "job_postings_delete_blocked"
@@ -336,26 +535,25 @@ to authenticated
 using (false);
 
 -- =========================================================
--- 4. PUBLIC DEPARTMENT NAMES FOR CAREER PAGE
+-- 9. PUBLIC DEPARTMENT NAMES
 -- =========================================================
--- Hanya nama department aktif yang diperlukan untuk label lowongan.
--- Tidak membuka data karyawan.
 
 drop policy if exists "departments_select_public_active" on public.departments;
 create policy "departments_select_public_active"
 on public.departments
 for select
 to anon
-using (
-  deleted_at is null
-);
+using (deleted_at is null);
 
 -- =========================================================
--- 5. DEFENSIVE COLUMN DEFAULTS / INDEX
+-- 10. INDEXES
 -- =========================================================
 
 create index if not exists job_postings_public_open_idx
   on public.job_postings(status, opened_date desc)
   where deleted_at is null and status = 'open';
+
+create index if not exists job_postings_work_system_idx
+  on public.job_postings(work_system);
 
 commit;
