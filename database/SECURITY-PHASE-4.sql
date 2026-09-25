@@ -922,4 +922,12 @@ create index if not exists job_postings_public_open_idx
 create index if not exists job_postings_work_system_idx
   on public.job_postings(work_system);
 
+
+-- =========================================================
+-- 14. REFRESH POSTGREST SCHEMA CACHE
+-- =========================================================
+-- Diperlukan agar Data API mengenali tabel / function baru
+-- setelah perubahan schema pada Supabase.
+notify pgrst, 'reload schema';
+
 commit;
