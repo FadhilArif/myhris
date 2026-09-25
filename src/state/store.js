@@ -15,6 +15,7 @@ export const state = {
 export const CACHE = {
   departments: [],
   positions: [],
+  jobPostings: [],
   leaveTypes: [],
   shiftList: [],
   employees: []
