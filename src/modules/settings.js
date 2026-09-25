@@ -248,51 +248,113 @@ export async function openPermissionManager(profile){
   const roleActions = new Set((ROLE_PERMISSIONS?.[profile.role]?.actions)||[]);
   const byCategory = {};
 
-  catalog.forEach(item => {
+  catalog.forEach(item=>{
     if(!byCategory[item.category]) byCategory[item.category] = [];
     byCategory[item.category].push(item);
   });
 
-  const roleLabels = {admin:'Admin',hr:'HRD',manager:'Manager',employee:'Employee'};
+  const roleLabels = {
+    admin:'Admin',
+    hr:'HRD',
+    manager:'Manager',
+    employee:'Employee'
+  };
 
-  const groups = Object.entries(byCategory).map(([category, items]) => `
-    <div style="border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;">
-      <div style="background:var(--surface-2);padding:10px 12px;font-weight:700;">${escapeHtml(items[0].categoryLabel)}</div>
-      <div style="padding:8px 12px;">
-        ${items.map(item=>{
+  const activeOverrides = Object.keys(overrides).length;
+  const grants = Object.values(overrides).filter(Boolean).length;
+  const denies = Object.values(overrides).filter(v=>!v).length;
+
+  const groups = Object.entries(byCategory).map(([category, items])=>`
+    <section style="border:1px solid #E7E9E8;border-radius:12px;overflow:hidden;background:#fff;margin-bottom:12px;">
+      <div style="padding:12px 14px;background:#F7F9F8;border-bottom:1px solid #E7E9E8;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div style="font-weight:700;color:#17352D;">${escapeHtml(items[0].categoryLabel)}</div>
+        <div style="font-size:11px;color:#7B8581;">${items.length} permission</div>
+      </div>
+      <div>
+        ${items.map((item, index)=>{ 
           const override = Object.prototype.hasOwnProperty.call(overrides,item.permission)
             ? (overrides[item.permission] ? 'grant' : 'deny')
             : 'default';
           const roleDefault = roleActions.has(item.permission);
-          const hint = override==='default'
-            ? (roleDefault ? 'Bawaan role: aktif' : 'Bawaan role: tidak aktif')
-            : (override==='grant' ? 'Custom: diizinkan' : 'Custom: diblokir');
+          const effectiveLabel = override==='grant'
+            ? 'Custom • Diizinkan'
+            : override==='deny'
+              ? 'Custom • Diblokir'
+              : roleDefault
+                ? 'Default • Aktif'
+                : 'Default • Tidak aktif';
+          const effectiveBg = override==='grant'
+            ? '#E8F6EE'
+            : override==='deny'
+              ? '#FDECEC'
+              : roleDefault
+                ? '#EEF7F3'
+                : '#F3F4F4';
+          const effectiveColor = override==='grant'
+            ? '#237A4B'
+            : override==='deny'
+              ? '#B3402F'
+              : roleDefault
+                ? '#276A57'
+                : '#707873';
+
           return `
-            <div style="display:grid;grid-template-columns:minmax(180px,1fr) 150px minmax(150px,1fr);gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-soft);">
-              <div><b>${escapeHtml(item.actionLabel)}</b><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(item.permission)}</div></div>
-              <select class="permission-override" data-permission="${escapeHtml(item.permission)}" style="width:100%;">
+            <div style="padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) 190px 150px;gap:14px;align-items:center;${index<items.length-1?'border-bottom:1px solid #F0F2F1;':''}">
+              <div style="min-width:0;">
+                <div style="font-weight:600;font-size:13px;color:#26312E;">${escapeHtml(item.actionLabel)}</div>
+                <div style="font-size:11px;color:#8A928E;margin-top:2px;overflow-wrap:anywhere;">${escapeHtml(item.permission)}</div>
+              </div>
+              <select class="permission-override" data-permission="${escapeHtml(item.permission)}"
+                style="width:100%;padding:9px 10px;border:1px solid #D9DEDC;border-radius:8px;background:#fff;color:#24302C;">
                 <option value="default" ${override==='default'?'selected':''}>Gunakan Default</option>
                 <option value="grant" ${override==='grant'?'selected':''}>Izinkan</option>
                 <option value="deny" ${override==='deny'?'selected':''}>Tolak</option>
               </select>
-              <div style="font-size:12px;color:var(--text-muted);">${hint}</div>
+              <div style="font-size:11px;font-weight:600;padding:7px 9px;border-radius:999px;text-align:center;background:${effectiveBg};color:${effectiveColor};white-space:nowrap;">
+                ${effectiveLabel}
+              </div>
             </div>`;
         }).join('')}
       </div>
-    </div>`).join('');
+    </section>`).join('');
 
   openModal(`
-    <h3>Hak Akses — ${escapeHtml(profile.full_name||'Akun')}</h3>
-    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">
-      Role standar: <b>${escapeHtml(roleLabels[profile.role]||profile.role||'-')}</b>.
-      Perubahan di sini hanya menjadi override untuk akun ini.
-    </div>
-    <div id="permission-overrides-form" style="max-height:60vh;overflow:auto;padding-right:4px;">
-      ${groups}
-    </div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
-      <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="savePermissionOverrides('${profile.id}')">Simpan Perubahan</button>
+    <div class="permission-modal-shell" style="width:min(920px,calc(100vw - 28px));max-height:90vh;background:#fff;border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 55px rgba(0,0,0,.20);">
+      <div style="padding:18px 22px 14px;border-bottom:1px solid #E7E9E8;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+          <div style="min-width:0;">
+            <div style="font-size:19px;font-weight:750;color:#17352D;">Hak Akses Per Akun</div>
+            <div style="margin-top:4px;font-size:13px;color:#66706C;overflow-wrap:anywhere;">
+              ${escapeHtml(profile.full_name||'Akun')}
+            </div>
+          </div>
+          <div style="padding:7px 11px;border-radius:999px;background:#EEF7F3;color:#276A57;font-size:12px;font-weight:700;white-space:nowrap;">
+            Role standar: ${escapeHtml(roleLabels[profile.role]||profile.role||'-')}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <span style="padding:6px 9px;border-radius:8px;background:#F4F6F5;color:#626C68;font-size:11px;">${catalog.length} permission tersedia</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#F4F6F5;color:#626C68;font-size:11px;">${activeOverrides} custom aktif</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#E8F6EE;color:#237A4B;font-size:11px;">${grants} diizinkan</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#FDECEC;color:#B3402F;font-size:11px;">${denies} diblokir</span>
+        </div>
+      </div>
+
+      <div style="padding:14px 16px 6px;background:#F7F9F8;">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 190px 150px;gap:14px;padding:0 14px 8px;color:#8A928E;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">
+          <div>Permission</div>
+          <div>Override</div>
+          <div>Status efektif</div>
+        </div>
+        <div id="permission-overrides-form" style="max-height:calc(90vh - 220px);overflow:auto;padding:0 2px 8px;">
+          ${groups}
+        </div>
+      </div>
+
+      <div style="padding:14px 22px;border-top:1px solid #E7E9E8;background:#fff;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+        <button class="btn btn-primary" onclick="savePermissionOverrides('${profile.id}')">Simpan Perubahan</button>
+      </div>
     </div>`);
 }
 
