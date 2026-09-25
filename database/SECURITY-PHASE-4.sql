@@ -461,6 +461,95 @@ $fn$;
 revoke all on function public.update_candidate_stage(uuid,text,text) from public;
 grant execute on function public.update_candidate_stage(uuid,text,text) to authenticated;
 
+-- =========================================================
+-- 7A. SECURE MANUAL CANDIDATE CREATION
+-- =========================================================
+
+create or replace function public.create_recruitment_candidate(
+  p_job_posting_id uuid,
+  p_full_name text,
+  p_email text default null,
+  p_phone text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_candidate_id uuid;
+begin
+  if auth.uid() is null or not public.has_permission('recruitment.manage') then
+    raise exception 'Not authorized';
+  end if;
+
+  if nullif(trim(p_full_name), '') is null then
+    raise exception 'Nama kandidat wajib diisi';
+  end if;
+
+  if nullif(trim(coalesce(p_email, '')), '') is null
+     and nullif(trim(coalesce(p_phone, '')), '') is null then
+    raise exception 'Minimal email atau telepon wajib diisi';
+  end if;
+
+  if not exists (
+    select 1
+    from public.job_postings
+    where id = p_job_posting_id
+      and deleted_at is null
+  ) then
+    raise exception 'Lowongan tidak ditemukan';
+  end if;
+
+  insert into public.candidates (
+    job_posting_id,
+    applicant_id,
+    full_name,
+    email,
+    phone,
+    stage
+  )
+  values (
+    p_job_posting_id,
+    null,
+    left(trim(p_full_name), 160),
+    left(nullif(trim(coalesce(p_email, '')), ''), 180),
+    left(nullif(trim(coalesce(p_phone, '')), ''), 40),
+    'administrative_selection'
+  )
+  returning id into v_candidate_id;
+
+  insert into public.candidate_stage_history (
+    candidate_id,
+    stage,
+    notes,
+    changed_by
+  )
+  values (
+    v_candidate_id,
+    'administrative_selection',
+    'Kandidat ditambahkan secara manual oleh tim rekrutmen.',
+    auth.uid()
+  );
+
+  perform public.record_audit(
+    'recruitment.candidate_create',
+    'candidates',
+    v_candidate_id,
+    null,
+    jsonb_build_object(
+      'job_posting_id', p_job_posting_id,
+      'stage', 'administrative_selection'
+    )
+  );
+
+  return v_candidate_id;
+end;
+$fn$;
+
+revoke all on function public.create_recruitment_candidate(uuid,text,text,text) from public;
+grant execute on function public.create_recruitment_candidate(uuid,text,text,text) to authenticated;
+
 -- Seed history for existing candidates without any timeline.
 insert into public.candidate_stage_history (
   candidate_id,
