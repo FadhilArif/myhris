@@ -8,6 +8,7 @@ export const state = {
   bootedUserId: null,
   lastBootAt: 0,
   sessionExpiring: false,
+  permissionOverrides: {},
   empDetail: { id: null, tab: 'overview', employee: null }
 };
 

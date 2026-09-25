@@ -3,6 +3,7 @@ import { state, CACHE } from '../state/store.js';
 import { sbAll } from '../services/db.js';
 import { el, escapeHtml, openModal, closeModal, showToast } from '../utils/dom.js';
 import { fmtMoney, formatNumberInput as fmtInput } from '../utils/format.js';
+import { ROLE_PERMISSIONS, getPermissionCatalog } from '../config/permissions.js';
 
 export async function renderSettings(){
   const c = el('content');
@@ -12,13 +13,14 @@ export async function renderSettings(){
       <div class="tab" data-tab="leavetype" onclick="switchSettingsTab('leavetype')">Jenis Cuti</div>
       <div class="tab" data-tab="payrollcomp" onclick="switchSettingsTab('payrollcomp')">Komponen Payroll</div>
       <div class="tab" data-tab="users" onclick="switchSettingsTab('users')">Pengguna & Role</div>
+      <div class="tab" data-tab="permissions" onclick="switchSettingsTab('permissions')">Hak Akses</div>
     </div><div id="settings-body"></div>`;
   switchSettingsTab('dept');
 }
 
 export function switchSettingsTab(tab){
   document.querySelectorAll('#content .tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===tab));
-  ({dept:loadDeptSettings, pos:loadPosSettings, leavetype:loadLeaveTypeSettings, payrollcomp:loadPayrollCompSettings, users:loadUserSettings})[tab]();
+  ({dept:loadDeptSettings, pos:loadPosSettings, leavetype:loadLeaveTypeSettings, payrollcomp:loadPayrollCompSettings, users:loadUserSettings, permissions:loadPermissionSettings})[tab]();
 }
 
 export async function loadDeptSettings(){
@@ -146,8 +148,241 @@ export async function quickSave(table, reload){
 }
 
 export async function quickDelete(table, id, reload){
-  if(!confirm('Hapus data ini?')) return;
-  const { error } = await sb.from(table).delete().eq('id', id);
-  if(error){ showToast('Gagal menghapus: '+error.message, true); return; }
-  showToast('Data dihapus.'); window[reload]();
+  if(!confirm('Data akan dinonaktifkan (soft delete) agar histori tetap aman. Lanjutkan?')) return;
+
+  const softDeleteTables = [
+    'departments',
+    'positions',
+    'leave_types',
+    'payroll_components',
+    'training_programs',
+    'job_postings'
+  ];
+
+  if(softDeleteTables.includes(table)){
+    const { data, error } = await sb.rpc('soft_delete_master', {
+      p_table: table,
+      p_id: id
+    });
+
+    if(error){
+      showToast('Gagal menonaktifkan data: ' + error.message, true);
+      return;
+    }
+
+    if(!data){
+      showToast('Data tidak ditemukan atau sudah dinonaktifkan.', true);
+      return;
+    }
+
+    showToast('Data dinonaktifkan. Histori tetap tersimpan.');
+    window[reload]();
+    return;
+  }
+
+  showToast('Penghapusan untuk tabel ini dinonaktifkan demi keamanan.', true);
+}
+
+
+export async function loadPermissionSettings(){
+  const [profiles, emps] = await Promise.all([
+    sbAll('profiles', {order:{col:'full_name'}}),
+    sbAll('employees', {order:{col:'full_name'}})
+  ]);
+
+  el('settings-body').innerHTML = `
+    <div class="card">
+      <h3 style="margin-top:0;">Hak Akses Per Akun</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin-top:0;">
+        Role adalah standar bawaan. Gunakan <b>Hak Akses</b> hanya untuk custom akun tertentu.
+        Admin dapat memberi izin tambahan, memblokir izin tertentu, atau mengembalikannya ke default role.
+      </p>
+      <div class="card" style="padding:0;overflow:auto;">
+        <table>
+          <thead><tr><th>Nama Akun</th><th>Role</th><th>Karyawan</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            ${profiles.map(p=>{
+              const emp = emps.find(e=>e.id===p.employee_id);
+              const isSelf = p.id === state.currentUser?.id;
+              return `<tr>
+                <td><b>${escapeHtml(p.full_name||'-')}</b></td>
+                <td>${escapeHtml(p.role||'-')}</td>
+                <td>${escapeHtml(emp?.full_name||'-')}</td>
+                <td>${isSelf
+                  ? '<span class="badge badge-neutral">Akun Admin Aktif</span>'
+                  : '<span class="badge badge-neutral">Standar Role</span>'}</td>
+                <td style="text-align:right;">
+                  <button class="btn btn-outline btn-sm" ${isSelf?'disabled':''}
+                    onclick='openPermissionManager(${JSON.stringify(p).replace(/'/g,"&apos;")})'>
+                    Kelola Hak Akses
+                  </button>
+                </td>
+              </tr>`;
+            }).join('') || '<tr><td colspan="5" class="empty-state">Belum ada pengguna.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+export async function openPermissionManager(profile){
+  if(!profile?.id) return;
+
+  if(profile.id === state.currentUser?.id){
+    showToast('Hak akses akun admin yang sedang dipakai tidak dapat diubah dari sini.', true);
+    return;
+  }
+
+  const { data: rows, error } = await sb
+    .from('permission_overrides')
+    .select('permission, effect')
+    .eq('user_id', profile.id);
+
+  if(error){
+    showToast('Gagal memuat custom hak akses: ' + error.message, true);
+    return;
+  }
+
+  const overrides = Object.fromEntries((rows||[]).map(r=>[r.permission, !!r.effect]));
+  const catalog = getPermissionCatalog();
+  const roleActions = new Set((ROLE_PERMISSIONS?.[profile.role]?.actions)||[]);
+  const byCategory = {};
+
+  catalog.forEach(item=>{
+    if(!byCategory[item.category]) byCategory[item.category] = [];
+    byCategory[item.category].push(item);
+  });
+
+  const roleLabels = {
+    admin:'Admin',
+    hr:'HRD',
+    manager:'Manager',
+    employee:'Employee'
+  };
+
+  const activeOverrides = Object.keys(overrides).length;
+  const grants = Object.values(overrides).filter(Boolean).length;
+  const denies = Object.values(overrides).filter(v=>!v).length;
+
+  const groups = Object.entries(byCategory).map(([category, items])=>`
+    <section style="border:1px solid #E7E9E8;border-radius:12px;overflow:hidden;background:#fff;margin-bottom:12px;">
+      <div style="padding:12px 14px;background:#F7F9F8;border-bottom:1px solid #E7E9E8;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div style="font-weight:700;color:#17352D;">${escapeHtml(items[0].categoryLabel)}</div>
+        <div style="font-size:11px;color:#7B8581;">${items.length} permission</div>
+      </div>
+      <div>
+        ${items.map((item, index)=>{ 
+          const override = Object.prototype.hasOwnProperty.call(overrides,item.permission)
+            ? (overrides[item.permission] ? 'grant' : 'deny')
+            : 'default';
+          const roleDefault = roleActions.has(item.permission);
+          const effectiveLabel = override==='grant'
+            ? 'Custom • Diizinkan'
+            : override==='deny'
+              ? 'Custom • Diblokir'
+              : roleDefault
+                ? 'Default • Aktif'
+                : 'Default • Tidak aktif';
+          const effectiveBg = override==='grant'
+            ? '#E8F6EE'
+            : override==='deny'
+              ? '#FDECEC'
+              : roleDefault
+                ? '#EEF7F3'
+                : '#F3F4F4';
+          const effectiveColor = override==='grant'
+            ? '#237A4B'
+            : override==='deny'
+              ? '#B3402F'
+              : roleDefault
+                ? '#276A57'
+                : '#707873';
+
+          return `
+            <div style="padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) 190px 150px;gap:14px;align-items:center;${index<items.length-1?'border-bottom:1px solid #F0F2F1;':''}">
+              <div style="min-width:0;">
+                <div style="font-weight:600;font-size:13px;color:#26312E;">${escapeHtml(item.actionLabel)}</div>
+                <div style="font-size:11px;color:#8A928E;margin-top:2px;overflow-wrap:anywhere;">${escapeHtml(item.permission)}</div>
+              </div>
+              <select class="permission-override" data-permission="${escapeHtml(item.permission)}"
+                style="width:100%;padding:9px 10px;border:1px solid #D9DEDC;border-radius:8px;background:#fff;color:#24302C;">
+                <option value="default" ${override==='default'?'selected':''}>Gunakan Default</option>
+                <option value="grant" ${override==='grant'?'selected':''}>Izinkan</option>
+                <option value="deny" ${override==='deny'?'selected':''}>Tolak</option>
+              </select>
+              <div style="font-size:11px;font-weight:600;padding:7px 9px;border-radius:999px;text-align:center;background:${effectiveBg};color:${effectiveColor};white-space:nowrap;">
+                ${effectiveLabel}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>
+    </section>`).join('');
+
+  openModal(`
+    <div class="permission-modal-shell" style="width:min(920px,calc(100vw - 28px));max-height:90vh;background:#fff;border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 55px rgba(0,0,0,.20);">
+      <div style="padding:18px 22px 14px;border-bottom:1px solid #E7E9E8;background:#fff;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+          <div style="min-width:0;">
+            <div style="font-size:19px;font-weight:750;color:#17352D;">Hak Akses Per Akun</div>
+            <div style="margin-top:4px;font-size:13px;color:#66706C;overflow-wrap:anywhere;">
+              ${escapeHtml(profile.full_name||'Akun')}
+            </div>
+          </div>
+          <div style="padding:7px 11px;border-radius:999px;background:#EEF7F3;color:#276A57;font-size:12px;font-weight:700;white-space:nowrap;">
+            Role standar: ${escapeHtml(roleLabels[profile.role]||profile.role||'-')}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">
+          <span style="padding:6px 9px;border-radius:8px;background:#F4F6F5;color:#626C68;font-size:11px;">${catalog.length} permission tersedia</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#F4F6F5;color:#626C68;font-size:11px;">${activeOverrides} custom aktif</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#E8F6EE;color:#237A4B;font-size:11px;">${grants} diizinkan</span>
+          <span style="padding:6px 9px;border-radius:8px;background:#FDECEC;color:#B3402F;font-size:11px;">${denies} diblokir</span>
+        </div>
+      </div>
+
+      <div style="padding:14px 16px 6px;background:#F7F9F8;">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 190px 150px;gap:14px;padding:0 14px 8px;color:#8A928E;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;">
+          <div>Permission</div>
+          <div>Override</div>
+          <div>Status efektif</div>
+        </div>
+        <div id="permission-overrides-form" style="max-height:calc(90vh - 220px);overflow:auto;padding:0 2px 8px;">
+          ${groups}
+        </div>
+      </div>
+
+      <div style="padding:14px 22px;border-top:1px solid #E7E9E8;background:#fff;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-outline" onclick="closeModal()">Batal</button>
+        <button class="btn btn-primary" onclick="savePermissionOverrides('${profile.id}')">Simpan Perubahan</button>
+      </div>
+    </div>`);
+  const wideModal = document.querySelector('#modal-root .modal');
+  if(wideModal) wideModal.classList.add('permission-modal-wide');
+}
+
+export async function savePermissionOverrides(userId){
+  if(!userId || userId === state.currentUser?.id){
+    showToast('Akun admin aktif tidak dapat diubah dari sini.', true);
+    return;
+  }
+
+  const overrides = {};
+  document.querySelectorAll('#permission-overrides-form .permission-override').forEach(select=>{
+    if(select.value === 'grant') overrides[select.dataset.permission] = true;
+    if(select.value === 'deny') overrides[select.dataset.permission] = false;
+  });
+
+  const { error } = await sb.rpc('save_permission_overrides', {
+    p_user_id: userId,
+    p_overrides: overrides
+  });
+
+  if(error){
+    showToast('Gagal menyimpan hak akses: ' + error.message, true);
+    return;
+  }
+
+  showToast('Custom hak akses tersimpan.');
+  closeModal();
+  loadPermissionSettings();
 }
