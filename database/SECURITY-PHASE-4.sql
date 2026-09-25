@@ -140,7 +140,7 @@ create index if not exists candidates_applied_at_idx
 -- NOT VALID menjaga migration tetap aman terhadap data lama.
 -- Constraint akan berlaku untuk INSERT/UPDATE baru.
 
-do $
+do $phase4$
 begin
   if not exists (
     select 1
@@ -165,7 +165,7 @@ begin
       check (stage in ('applied','screening','interview','offer','hired','rejected'))
       not valid;
   end if;
-end $;
+end $phase4$;
 
 -- =========================================================
 -- 2B. SECURE APPLICATION SUBMISSION
