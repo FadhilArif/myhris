@@ -108,6 +108,10 @@ export function openEmployeeForm(emp){
     <div class="field"><label>Nama Lengkap</label><input id="f-name" value="${emp?escapeHtml(emp.full_name):''}"></div>
     <div class="field"><label>Email</label><input id="f-email" type="email" value="${emp?escapeHtml(emp.email||''):''}"></div>
     <div class="field"><label>Telepon</label><input id="f-phone" value="${emp?escapeHtml(emp.phone||''):''}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Nama Bank</label><input id="f-bank-name" maxlength="80" placeholder="Contoh: BCA" value="${emp?escapeHtml(emp.bank_name||''):''}"></div>
+      <div class="field"><label>Nomor Rekening</label><input id="f-bank-account" inputmode="numeric" maxlength="40" placeholder="Nomor rekening" value="${emp?escapeHtml(emp.bank_account_number||''):''}"></div>
+    </div>
     <div class="field"><label>Departemen</label>
       <select id="f-dept" onchange="updatePositionDropdown(this.value)">
         <option value="">- Pilih Departemen -</option>${deptOpts}
@@ -145,6 +149,8 @@ export async function saveEmployee(id){
     const payload = {
       employee_code: employeeCode, full_name: fullName,
       email: el('f-email').value.trim() || null, phone: el('f-phone').value.trim() || null,
+      bank_name: el('f-bank-name').value.trim() || null,
+      bank_account_number: el('f-bank-account').value.replace(/\s/g,'').trim() || null,
       department_id: el('f-dept').value || null, position_id: el('f-pos').value || null,
       join_date: el('f-join').value || new Date().toISOString().slice(0,10),
       basic_salary: Number(el('f-salary').value.replace(/\./g, '')) || 0,
@@ -182,8 +188,8 @@ export function openImportCSVModal(){
 }
 
 export function downloadCSVTemplate(){
-  const headers = "employee_code,full_name,email,phone,department_name,position_name,join_date,basic_salary,employment_status\n";
-  const example = "EMP-001,Budi Santoso,budi@email.com,08123456789,IT,Software Engineer,2024-01-15,8000000,active\n";
+  const headers = "employee_code,full_name,email,phone,bank_name,bank_account_number,department_name,position_name,join_date,basic_salary,employment_status\n";
+  const example = "EMP-001,Budi Santoso,budi@email.com,08123456789,BCA,1234567890,IT,Software Engineer,2024-01-15,8000000,active\n";
   const csvContent = "data:text/csv;charset=utf-8," + headers + example;
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
@@ -201,7 +207,7 @@ export async function processCSV(){
     const rows = e.target.result.split('\n').filter(row => row.trim() !== '');
     if(rows.length < 2){ showToast('File CSV kosong.', true); return; }
     const rawHeaders = rows[0].split(',').map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
-    const headerMap = { 'kode karyawan':'employee_code','nama lengkap':'full_name','email':'email','telepon':'phone','departemen':'department_name','jabatan':'position_name','tanggal bergabung':'join_date','gaji pokok':'basic_salary','status':'employment_status' };
+    const headerMap = { 'kode karyawan':'employee_code','nama lengkap':'full_name','email':'email','telepon':'phone','nama bank':'bank_name','nomor rekening':'bank_account_number','departemen':'department_name','jabatan':'position_name','tanggal bergabung':'join_date','gaji pokok':'basic_salary','status':'employment_status' };
     const headers = rawHeaders.map(h => headerMap[h] || h);
     const [depts, pos] = await Promise.all([ sbAll('departments'), sbAll('positions') ]);
     const payloads = [];
@@ -216,6 +222,7 @@ export async function processCSV(){
       payloads.push({
         employee_code: rowData.employee_code, full_name: rowData.full_name,
         email: rowData.email||null, phone: rowData.phone||null,
+        bank_name: rowData.bank_name||null, bank_account_number: (rowData.bank_account_number||'').replace(/\s/g,'') || null,
         department_id: deptMatch?deptMatch.id:null, position_id: posMatch?posMatch.id:null,
         join_date: rowData.join_date || new Date().toISOString().slice(0,10),
         basic_salary: Number((rowData.basic_salary||'0').replace(/\./g,'')) || 0,

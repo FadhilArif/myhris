@@ -89,6 +89,7 @@ export function openPayrollCompForm(){
   openModal(`<h3>Tambah Komponen Payroll</h3>
     <div class="field"><label>Nama</label><input id="pc-name"></div>
     <div class="field"><label>Tipe</label><select id="pc-type"><option value="earning">Pendapatan</option><option value="deduction">Potongan</option></select></div>
+    <div class="field"><label>Metode Perhitungan</label><select id="pc-calc"><option value="fixed">Nominal Tetap</option><option value="percentage">Persentase Gaji Pokok</option><option value="bpjs_kesehatan">BPJS Kesehatan</option><option value="bpjs_jht">BPJS JHT</option><option value="bpjs_jp">BPJS JP</option><option value="pph21">PPh 21</option></select></div>
     <div class="field"><label>Nilai adalah Persentase?</label><select id="pc-pct"><option value="false">Tidak (nominal tetap)</option><option value="true">Ya (%)</option></select></div>
     <div class="field"><label>Nilai Default</label>
       <input id="pc-amount" type="text" oninput="formatNumberInput(this)" value="0"></div>
@@ -99,7 +100,7 @@ export function openPayrollCompForm(){
 }
 
 export async function savePayrollComp(){
-  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value.replace(/\./g, '')) || 0 });
+  const { error } = await sb.from('payroll_components').insert({ name: el('pc-name').value.trim(), component_type: el('pc-type').value, calc_type: el('pc-calc').value, is_percentage: el('pc-pct').value === 'true', default_amount: Number(el('pc-amount').value.replace(/\./g, '')) || 0 });
   if(error){ showToast(error.message, true); return; }
   showToast('Komponen ditambahkan.'); closeModal(); loadPayrollCompSettings();
 }

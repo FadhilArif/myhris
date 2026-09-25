@@ -848,3 +848,109 @@ public.add_candidate_internal_note(candidate_id, note)
 
 Catatan tidak ikut ditampilkan pada halaman Career publik/pelamar.
 
+
+
+## 💰 Payroll Enhancement
+
+Branch: `Payroll-Enhancement`
+
+### Data Karyawan
+Data karyawan sekarang mendukung:
+- Nama bank
+- Nomor rekening
+
+Form edit karyawan dan import CSV sudah mendukung kedua field tersebut. Nomor rekening hanya ditampilkan pada area yang berhak melihat data payroll/detail sensitif, dan ikut tersedia pada proses payroll/payslip.
+
+### Workflow Payroll
+Periode payroll sekarang menggunakan alur:
+```
+Draft
+  ↓
+Terhitung
+  ↓
+Review
+  ↓
+Disetujui
+  ↓
+Dibayar
+  ↓
+Terkunci
+```
+
+Periode payroll juga menyimpan:
+- attendance/payroll cut-off mulai dan berakhir;
+- tanggal pembayaran;
+- catatan payroll;
+- total gross;
+- total potongan;
+- total take home pay;
+- timestamp generate/review/approval/payment/lock.
+
+### Payroll Calculation
+Generate payroll tetap menggunakan mesin PPh 21 dan komponen payroll yang sudah ada, tetapi overtime yang masuk ke payroll sekarang mengikuti rentang cut-off periode.
+
+Status `processed` lama dimigrasikan menjadi `calculated`.
+
+### Payroll Adjustment
+Database menyediakan `payroll_adjustments` untuk pendapatan/potongan manual seperti bonus, insentif, koreksi, pinjaman, atau adjustment sekali bayar.
+
+### Payroll Component
+Form komponen payroll sekarang menyediakan metode:
+- Nominal tetap
+- Persentase gaji pokok
+- BPJS Kesehatan
+- BPJS JHT
+- BPJS JP
+- PPh 21
+
+### Payment
+Status `Dibayar` hanya mencatat bahwa proses pembayaran sudah dilakukan. MyHRIS belum terhubung langsung ke bank/disbursement API.
+
+
+
+### Payment File — Export ke Bank
+
+MyHRIS menggunakan pola pembayaran tahap awal:
+```
+Payroll Approved
+    ↓
+Generate File Pembayaran
+    ↓
+HR download CSV
+    ↓
+HR upload file ke Corporate Banking
+    ↓
+Bank memproses pembayaran
+    ↓
+HR tandai "Diunggah ke Bank" lalu "Sudah Dibayar"
+```
+
+MyHRIS **belum terhubung langsung ke API bank**.
+
+File yang dihasilkan menggunakan format CSV umum dengan kolom:
+- `employee_code`
+- `employee_name`
+- `bank_name`
+- `bank_account_number`
+- `amount`
+- `payment_date`
+- `reference`
+- `description`
+
+File hanya dapat dibuat setelah payroll berstatus `approved`, dan sistem menolak generation bila ada penerima payroll tanpa nama bank atau nomor rekening.
+
+Metadata pembayaran disimpan di `payroll_runs`:
+- `payment_status`
+- `payment_file_name`
+- `payment_file_generated_at`
+- `payment_file_generated_by`
+- `payment_uploaded_at`
+- `payment_uploaded_by`
+- `payment_reference`
+
+Status pembayaran:
+```
+pending → generated → uploaded → paid
+```
+
+Format CSV saat ini adalah **format umum**, bukan template khusus bank tertentu. Template khusus BCA/Mandiri/BNI/BRI dapat ditambahkan kemudian tanpa mengubah mesin payroll utama.

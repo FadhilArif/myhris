@@ -7,33 +7,89 @@ import { hitungPPh21Bulanan } from '../utils/tax.js';
 import { BPJS_CAP_KESEHATAN, BPJS_CAP_JP } from '../config/constants.js';
 
 export async function renderPayroll(){
-  if(!isHR()){ el('content').innerHTML = '<div class="empty-state">Akses ditolak.</div>'; return; }
-  const c = el('content');
-  const runs = await sbAll('payroll_runs', {order:{col:'created_at', asc:false}});
-  c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button></div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Periode</th><th>Status</th><th></th></tr></thead>
-    <tbody>${runs.map(r=>`<tr><td>${String(r.period_month).padStart(2,'0')}/${r.period_year}</td><td>${statusBadge(r.status)}</td>
-      <td style="text-align:right;">${r.status==='draft'?`<button class="btn btn-primary btn-sm" onclick="generatePayslips('${r.id}')">Generate Slip</button>`:''}
-      <button class="btn btn-outline btn-sm" onclick="viewPayslips('${r.id}','${r.period_month}','${r.period_year}')">Lihat Slip</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada periode.</td></tr>'}</tbody></table></div>
-    <div id="payslip-area" style="margin-top:16px;"></div>`;
+  if(!isHR()){ el('content').innerHTML='<div class="empty-state">Akses ditolak.</div>'; return; }
+  const runs=await sbAll('payroll_runs',{order:{col:'created_at',asc:false}});
+  const latest=runs[0];
+  let summary='';
+  if(latest){
+    const slips=await sbAll('payslips',{eq:{payroll_run_id:latest.id}});
+    const t=slips.reduce((a,s)=>{a.gross+=Number(s.total_earnings||0);a.ded+=Number(s.total_deductions||0);a.net+=Number(s.net_salary||0);return a;},{gross:0,ded:0,net:0});
+    summary=`<div class="grid grid-4" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-num">${slips.length}</div><div class="stat-label">Slip</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.gross)}</div><div class="stat-label">Gross</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.ded)}</div><div class="stat-label">Potongan</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.net)}</div><div class="stat-label">Take Home Pay</div></div>
+    </div>`;
+  }
+  el('content').innerHTML=`<div class="toolbar">
+    <span></span>
+    <button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button>
+  </div>
+  ${summary}
+  <div class="card" style="padding:0;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
+      <h3 style="margin:0;font-size:15px;">Payroll</h3>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">Alur: Draft → Terhitung → Review → Disetujui → Dibayar → Terkunci</div>
+    </div>
+    <div style="overflow:auto;"><table>
+      <thead><tr><th>Periode</th><th>Cut-off</th><th>Status</th><th>Gross</th><th>Net</th><th></th></tr></thead>
+      <tbody>${runs.map(r=>`<tr>
+        <td><b>${String(r.period_month).padStart(2,'0')}/${r.period_year}</b></td>
+        <td>${r.attendance_cutoff_start?`${fmtDate(r.attendance_cutoff_start)} — ${fmtDate(r.attendance_cutoff_end)}`:'-'}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${fmtMoney(r.total_gross||0)}</td>
+        <td><b>${fmtMoney(r.total_net||0)}</b></td>
+        <td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick='openPayrollRun(${JSON.stringify(r.id)})'>Kelola</button></td>
+      </tr>`).join('')||'<tr><td colspan="6" class="empty-state">Belum ada periode payroll.</td></tr>'}</tbody>
+    </table></div>
+  </div>
+  <div id="payslip-area" style="margin-top:16px;"></div>`;
 }
 
-export function openPayrollRunForm(){
-  const now = new Date();
-  openModal(`<h3>Buat Periode Payroll</h3>
-    <div class="field"><label>Bulan</label><input id="pr-month" type="number" min="1" max="12" value="${now.getMonth()+1}"></div>
-    <div class="field"><label>Tahun</label><input id="pr-year" type="number" value="${now.getFullYear()}"></div>
+export function openPayrollRunForm(run=null){
+  const now=new Date();
+  const year=run?.period_year||now.getFullYear();
+  const month=run?.period_month||now.getMonth()+1;
+  const start=run?.attendance_cutoff_start||new Date(year,month-1,1).toISOString().slice(0,10);
+  const end=run?.attendance_cutoff_end||new Date(year,month,0).toISOString().slice(0,10);
+  const payment=run?.payment_date||new Date(year,month,0).toISOString().slice(0,10);
+  openModal(`<h3>${run?'Atur Periode Payroll':'Buat Periode Payroll'}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Bulan</label><input id="pr-month" type="number" min="1" max="12" value="${month}" ${run?'disabled':''}></div>
+      <div class="field"><label>Tahun</label><input id="pr-year" type="number" value="${year}" ${run?'disabled':''}></div>
+    </div>
+    <div class="field"><label>Cut-off Mulai</label><input id="pr-start" type="date" value="${start}"></div>
+    <div class="field"><label>Cut-off Berakhir</label><input id="pr-end" type="date" value="${end}"></div>
+    <div class="field"><label>Tanggal Pembayaran</label><input id="pr-payment" type="date" value="${payment}"></div>
+    <div class="field"><label>Catatan</label><textarea id="pr-notes" rows="3">${escapeHtml(run?.notes||'')}</textarea></div>
+    ${run?`<div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;margin-bottom:10px;">Status: ${statusBadge(run.status)}</div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="savePayrollRun()">Buat</button>
+      <button class="btn btn-primary" onclick="${run?`updatePayrollRun('${run.id}')`:'savePayrollRun()'}">${run?'Simpan':'Buat'}</button>
     </div>`);
 }
 
 export async function savePayrollRun(){
-  const { error } = await sb.from('payroll_runs').insert({ period_month: Number(el('pr-month').value), period_year: Number(el('pr-year').value) });
-  if(error){ showToast(error.message, true); return; }
-  showToast('Periode dibuat.'); closeModal(); renderPayroll();
+  const month=Number(el('pr-month').value);
+  const year=Number(el('pr-year').value);
+  const start=el('pr-start').value;
+  const end=el('pr-end').value;
+  const payment=el('pr-payment').value;
+  const notes=el('pr-notes').value.trim();
+  if(!month||!year||!start||!end){showToast('Bulan, tahun, dan cut-off wajib diisi.',true);return;}
+  if(start>end){showToast('Cut-off tidak valid.',true);return;}
+  const {data:existing}=await sb.from('payroll_runs').select('id').eq('period_month',month).eq('period_year',year).maybeSingle();
+  if(existing){showToast('Periode payroll tersebut sudah ada.',true);return;}
+  const {data,error}=await sb.from('payroll_runs').insert({
+    period_month:month,period_year:year,status:'draft',
+    attendance_cutoff_start:start,attendance_cutoff_end:end,
+    payment_date:payment||null,notes:notes||null
+  }).select().single();
+  if(error){showToast(error.message,true);return;}
+  await logAudit('payroll.run_create','payroll_runs',data?.id||null,null,{period_month:month,period_year:year});
+  showToast('Periode payroll dibuat.');closeModal();renderPayroll();
 }
+
 
 export async function generatePayslips(runId){
   if(!confirm('Generate slip gaji untuk semua karyawan aktif?')) return;
@@ -52,6 +108,8 @@ export async function generatePayslips(runId){
     const runs = await sbAll('payroll_runs', {eq:{id: runId}});
     const run = runs[0];
     const pMonth = run?.period_month, pYear = run?.period_year;
+    const cutoffStart = run?.attendance_cutoff_start || `${pYear}-${String(pMonth).padStart(2,'0')}-01`;
+    const cutoffEnd = run?.attendance_cutoff_end || new Date(Number(pYear), Number(pMonth), 0).toISOString().slice(0,10);
     const payloads = [];
     for(const e of emps){
       const details = [];
@@ -65,8 +123,8 @@ export async function generatePayslips(runId){
       });
       const myOt = overtimeReqs.filter(o => {
         if(o.employee_id !== e.id) return false;
-        const d = new Date(o.overtime_date);
-        return d.getMonth()+1 === pMonth && d.getFullYear() === pYear;
+        const d = String(o.overtime_date || '').slice(0,10);
+        return d >= cutoffStart && d <= cutoffEnd;
       });
       const totalLembur = myOt.reduce((s,o) => s + (Number(o.amount)||0), 0);
       if(totalLembur > 0){ details.push({ name:'Upah Lembur', amount: totalLembur, type:'earning' }); totalEarn += totalLembur; }
@@ -93,7 +151,16 @@ export async function generatePayslips(runId){
     }
     const { error } = await sb.from('payslips').upsert(payloads, { onConflict: 'payroll_run_id,employee_id' });
     if(error){ showToast('Gagal generate: ' + error.message, true); return; }
-    await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
+    const payrollTotalGross = payloads.reduce((s,p)=>s+Number(p.total_earnings||0),0);
+    const payrollTotalDed = payloads.reduce((s,p)=>s+Number(p.total_deductions||0),0);
+    const payrollTotalNet = payloads.reduce((s,p)=>s+Number(p.net_salary||0),0);
+    await sb.from('payroll_runs').update({
+      status:'calculated',
+      total_gross:Math.round(payrollTotalGross),
+      total_deductions:Math.round(payrollTotalDed),
+      total_net:Math.round(payrollTotalNet),
+      generated_at:new Date().toISOString()
+    }).eq('id', runId);
     showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`); renderPayroll();
   } finally { btns.forEach(b => b.disabled = false); }
 }
@@ -103,6 +170,125 @@ export async function viewPayslips(runId, month, year){
   el('payslip-area').innerHTML = `<h3>Slip Gaji ${String(month).padStart(2,'0')}/${year}</h3>
     <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Gaji Pokok</th><th>Pendapatan</th><th>Potongan</th><th>Gaji Bersih</th></tr></thead>
     <tbody>${slips.map(s=>{ const e = emps.find(x=>x.id===s.employee_id); return `<tr><td>${e?e.full_name:'-'}</td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Belum dibuat.</td></tr>'}</tbody></table></div>`;
+}
+
+
+export async function updatePayrollRun(runId){
+  const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
+  if(!['draft','calculated','under_review'].includes(run.data.status)){showToast('Periode sudah final dan tidak dapat diedit.',true);return;}
+  const start=el('pr-start').value,end=el('pr-end').value,payment=el('pr-payment').value,notes=el('pr-notes').value.trim();
+  if(start&&end&&start>end){showToast('Cut-off tidak valid.',true);return;}
+  const {error}=await sb.from('payroll_runs').update({attendance_cutoff_start:start||null,attendance_cutoff_end:end||null,payment_date:payment||null,notes:notes||null}).eq('id',runId);
+  if(error){showToast(error.message,true);return;}
+  await logAudit('payroll.run_update','payroll_runs',runId,null,{attendance_cutoff_start:start,attendance_cutoff_end:end,payment_date:payment});
+  closeModal();showToast('Periode diperbarui.');renderPayroll();
+}
+
+function paymentFileName(run){
+  return 'PAYROLL_' + run.period_year + '-' + String(run.period_month).padStart(2,'0') + '_PAYMENT.csv';
+}
+
+function csvCell(value){
+  return '"' + String(value ?? '').replace(/"/g, '""') + '"';
+}
+
+export async function generatePaymentFile(runId){
+  const {data:run,error:runError}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(runError||!run){showToast('Periode payroll tidak ditemukan.',true);return;}
+  if(!['approved','paid','locked'].includes(run.status)){showToast('File pembayaran baru dapat dibuat setelah payroll disetujui.',true);return;}
+  const [slips,emps]=await Promise.all([sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees')]);
+  if(!slips.length){showToast('Belum ada slip payroll untuk dibuatkan file pembayaran.',true);return;}
+  const missing=slips.map(s=>emps.find(e=>e.id===s.employee_id)).filter(e=>!e||!e.bank_name||!e.bank_account_number);
+  if(missing.length){showToast('Ada '+missing.length+' karyawan yang belum memiliki bank/rekening. Lengkapi data rekening terlebih dahulu.',true);return;}
+  const paymentDate=run.payment_date||new Date().toISOString().slice(0,10);
+  const periodRef='PAYROLL-'+run.period_year+'-'+String(run.period_month).padStart(2,'0');
+  const headers=['employee_code','employee_name','bank_name','bank_account_number','amount','payment_date','reference','description'];
+  const rows=slips.map(s=>{
+    const e=emps.find(x=>x.id===s.employee_id)||{};
+    return [e.employee_code||'',e.full_name||'',e.bank_name||'',e.bank_account_number||'',Math.round(Number(s.net_salary)||0),paymentDate,periodRef+'-'+(e.employee_code||s.employee_id),'Gaji '+String(run.period_month).padStart(2,'0')+'/'+run.period_year].map(csvCell).join(',');
+  });
+  const csv='\uFEFF'+[headers.map(csvCell).join(','),...rows].join('\r\n');
+  const fileName=paymentFileName(run);
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  const {error}=await sb.from('payroll_runs').update({payment_status:'generated',payment_file_name:fileName,payment_file_generated_at:new Date().toISOString(),payment_file_generated_by:state.currentUser?.id||null}).eq('id',runId);
+  if(error){showToast('File berhasil diunduh, tetapi metadata pembayaran gagal disimpan: '+error.message,true);return;}
+  await logAudit('payroll.payment_file_generate','payroll_runs',runId,null,{file_name:fileName,row_count:rows.length,payment_date:paymentDate});
+  showToast('File pembayaran '+fileName+' berhasil dibuat.');
+  openPayrollRun(runId);
+}
+
+export async function markPaymentUploaded(runId){
+  const {data:run,error}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(error||!run){showToast('Periode payroll tidak ditemukan.',true);return;}
+  if(run.status!=='approved'){showToast('Payroll harus sudah disetujui.',true);return;}
+  if(!['generated','uploaded'].includes(run.payment_status)){showToast('Buat file pembayaran terlebih dahulu.',true);return;}
+  const reference=prompt('Nomor batch / reference dari bank (opsional):',run.payment_reference||'');
+  if(reference===null)return;
+  const {error:updateError}=await sb.from('payroll_runs').update({payment_status:'uploaded',payment_uploaded_at:new Date().toISOString(),payment_uploaded_by:state.currentUser?.id||null,payment_reference:reference.trim()||null}).eq('id',runId);
+  if(updateError){showToast('Gagal mencatat upload ke bank: '+updateError.message,true);return;}
+  await logAudit('payroll.payment_file_uploaded','payroll_runs',runId,{payment_status:run.payment_status},{payment_status:'uploaded',payment_reference:reference.trim()||null});
+  showToast('Status file pembayaran dicatat sebagai terunggah ke bank.');
+  openPayrollRun(runId);
+}
+
+export async function openPayrollRun(runId){
+  const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
+  const r=run.data;
+  const [slips,emps]=await Promise.all([sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees')]);
+  const missing=emps.filter(e=>e.employment_status==='active'&&(!e.bank_name||!e.bank_account_number)).length;
+  const canReview=r.status==='calculated',canApprove=r.status==='under_review',canPay=r.status==='approved',canLock=r.status==='paid';
+  const totals=slips.reduce((a,s)=>{a.g+=Number(s.total_earnings||0);a.d+=Number(s.total_deductions||0);a.n+=Number(s.net_salary||0);return a;},{g:0,d:0,n:0});
+  el('payslip-area').innerHTML=`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;"><div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Payroll</div><h3 style="margin:3px 0;">${String(r.period_month).padStart(2,'0')}/${r.period_year}</h3><div style="font-size:12px;color:var(--text-muted);">Cut-off: ${r.attendance_cutoff_start||'-'} — ${r.attendance_cutoff_end||'-'} · Pembayaran: ${r.payment_date||'-'}</div></div>${statusBadge(r.status)}</div>
+    <div class="grid grid-4" style="margin:14px 0;"><div class="stat-card"><div class="stat-num">${slips.length}</div><div class="stat-label">Slip</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.g)}</div><div class="stat-label">Gross</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.d)}</div><div class="stat-label">Potongan</div></div><div class="stat-card"><div class="stat-num">${fmtMoney(totals.n)}</div><div class="stat-label">Take Home Pay</div></div></div>
+    ${r.payment_status&&r.payment_status!=='pending'?`<div style='background:#FAFAF6;border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:12px;'><div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start;'><div><div style='font-size:12px;font-weight:800;'>Pembayaran Bank</div><div style='font-size:11.5px;color:var(--text-muted);margin-top:3px;'>Alur manual: generate file → upload ke bank → proses bank → tandai sudah dibayar.</div></div>${statusBadge(r.payment_status)}</div>${r.payment_file_name?`<div style='font-size:11.5px;margin-top:7px;'>File: <b>${escapeHtml(r.payment_file_name)}</b></div>`:''}${r.payment_reference?`<div style='font-size:11.5px;margin-top:3px;'>Reference: <b>${escapeHtml(r.payment_reference)}</b></div>`:''}</div>`:''}
+    ${missing?`<div style="background:#FBF1DE;color:#7A5A1A;padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:12px;">⚠ ${missing} karyawan aktif belum punya bank/rekening.</div>`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">${['draft','calculated'].includes(r.status)?`<button class="btn btn-primary btn-sm" onclick='generatePayslips(${JSON.stringify(runId)})'>↻ Hitung / Generate</button>`:''}${canReview?`<button class="btn btn-outline btn-sm" onclick='submitPayrollReview(${JSON.stringify(runId)})'>Ajukan Review</button>`:''}${canApprove?`<button class="btn btn-primary btn-sm" onclick='approvePayroll(${JSON.stringify(runId)})'>✓ Approve</button>`:''}${r.status==='approved'?`<button class="btn btn-outline btn-sm" onclick='generatePaymentFile(${JSON.stringify(runId)})'>⇩ Generate File Pembayaran</button>`:''}${r.status==='approved'&&r.payment_status==='generated'?`<button class="btn btn-outline btn-sm" onclick='markPaymentUploaded(${JSON.stringify(runId)})'>✓ Tandai Diunggah ke Bank</button>`:''}${canPay?`<button class="btn btn-primary btn-sm" onclick='markPayrollPaid(${JSON.stringify(runId)})'>✓ Tandai Dibayar</button>`:''}${canLock?`<button class="btn btn-outline btn-sm" onclick='lockPayroll(${JSON.stringify(runId)})'>🔒 Kunci</button>`:''}${['draft','calculated','under_review'].includes(r.status)?`<button class="btn btn-outline btn-sm" onclick='openPayrollRunForm(${JSON.stringify(r)})'>Pengaturan</button>`:''}</div>
+    <div style="overflow:auto;"><table><thead><tr><th>Karyawan</th><th>Bank</th><th>Gaji Pokok</th><th>Gross</th><th>Potongan</th><th>Net</th><th></th></tr></thead><tbody>${slips.map(s=>{const e=emps.find(x=>x.id===s.employee_id)||{};return `<tr><td>${escapeHtml(e.full_name||'-')}<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(e.employee_code||'-')}</div></td><td>${escapeHtml(e.bank_name||'-')}<div style="font-size:11px;color:var(--text-muted);">${escapeHtml(e.bank_account_number||'-')}</div></td><td>${fmtMoney(s.basic_salary)}</td><td>${fmtMoney(s.total_earnings)}</td><td>${fmtMoney(s.total_deductions)}</td><td><b>${fmtMoney(s.net_salary)}</b></td><td><button class="btn btn-outline btn-sm" onclick='showPayslipDetail(${JSON.stringify(s)},${JSON.stringify(String(r.period_month).padStart(2,'0')+'/'+r.period_year)},${JSON.stringify(e)})'>Detail</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="empty-state">Belum ada slip.</td></tr>'}</tbody></table></div>
+    </div>`;
+}
+
+export async function submitPayrollReview(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  const slips=await sbAll('payslips',{eq:{payroll_run_id:runId}});
+  if(run?.status!=='calculated'||!slips.length){showToast('Payroll harus sudah dihitung.',true);return;}
+  await sb.from('payroll_runs').update({status:'under_review',reviewed_by:state.currentUser?.id||null,reviewed_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.submit_review','payroll_runs',runId,{status:'calculated'},{status:'under_review'});
+  showToast('Payroll masuk tahap review.');openPayrollRun(runId);
+}
+
+export async function approvePayroll(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  if(run?.status!=='under_review'){showToast('Payroll belum siap di-approve.',true);return;}
+  if(!confirm('Approve payroll ini? Setelah disetujui, perubahan harus melalui koreksi payroll.'))return;
+  await sb.from('payroll_runs').update({status:'approved',approved_by:state.currentUser?.id||null,approved_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.approve','payroll_runs',runId,{status:'under_review'},{status:'approved'});
+  showToast('Payroll disetujui.');openPayrollRun(runId);
+}
+
+export async function markPayrollPaid(runId){
+  const {data:run}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(run?.status!=='approved'){showToast('Payroll harus disetujui terlebih dahulu.',true);return;}
+  if(!['uploaded','processing'].includes(run.payment_status)){showToast('Tandai file pembayaran sudah diunggah ke bank terlebih dahulu.',true);return;}
+  if(!confirm('Tandai payroll sudah dibayar? Ini hanya mencatat hasil pembayaran manual dari bank.'))return;
+  const payment=run.payment_date||new Date().toISOString().slice(0,10);
+  await sb.from('payroll_runs').update({status:'paid',payment_status:'paid',payment_date:payment,paid_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.mark_paid','payroll_runs',runId,{status:'approved'},{status:'paid',payment_date:payment});
+  showToast('Payroll ditandai sudah dibayar.');openPayrollRun(runId);
+}
+
+export async function lockPayroll(runId){
+  const {data:run}=await sb.from('payroll_runs').select('status').eq('id',runId).maybeSingle();
+  if(run?.status!=='paid'){showToast('Payroll harus sudah dibayar.',true);return;}
+  if(!confirm('Kunci payroll ini? Setelah dikunci, periode dianggap final.'))return;
+  await sb.from('payroll_runs').update({status:'locked',locked_at:new Date().toISOString()}).eq('id',runId);
+  await logAudit('payroll.lock','payroll_runs',runId,{status:'paid'},{status:'locked'});
+  showToast('Payroll dikunci.');openPayrollRun(runId);
 }
 
 export async function renderMyPayslip(){
@@ -165,9 +351,10 @@ export async function printPayslip(payslipId){
         <tr><td>Departemen</td><td>: ${escapeHtml(emp.departments?.name||'-')}</td></tr>
       </table>
       <table>
+        <tr><td>Bank</td><td>: ${escapeHtml(emp.bank_name||'-')}</td></tr>
+        <tr><td>No. Rekening</td><td>: ${escapeHtml(emp.bank_account_number||'-')}</td></tr>
         <tr><td>Tanggal Cetak</td><td>: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</td></tr>
-        <tr><td>Status</td><td>: ${run?.status === 'processed' ? 'Diproses' : (run?.status||'-')}</td></tr>
-        <tr><td>Periode</td><td>: ${periode}</td></tr>
+        <tr><td>Status</td><td>: ${run?.status||'-'}</td></tr>
       </table>
     </div>
     <div class="section-title">PENDAPATAN</div>
