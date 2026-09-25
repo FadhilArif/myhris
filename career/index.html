@@ -274,13 +274,18 @@ async function saveProfile(){
 // ---- Melamar ----
 async function applyJob(jobId){
   if(!SESSION || !CPROFILE) return;
-  const { error } = await sb.from('candidates').insert({
-    job_posting_id: jobId, applicant_id: SESSION.user.id,
-    full_name: CPROFILE.full_name, email: CPROFILE.email || SESSION.user.email, phone: CPROFILE.phone,
-    stage: 'applied'
+
+  const { error } = await sb.rpc('submit_candidate_application', {
+    p_job_posting_id: jobId
   });
-  if(error){ showToast('Gagal mengirim lamaran: '+error.message, true); return; }
-  showToast('Lamaran terkirim! Terima kasih sudah melamar.'); await loadAll();
+
+  if(error){
+    showToast('Gagal mengirim lamaran: '+error.message, true);
+    return;
+  }
+
+  showToast('Lamaran terkirim! Terima kasih sudah melamar.');
+  await loadAll();
 }
 
 init();
