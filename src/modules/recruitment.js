@@ -407,7 +407,7 @@ export async function openCandidateDetail(candidateId, tab='profile'){
   const activeTab = tabs.find(t=>t[0]===tab)?.[0] || 'profile';
 
   openModal(`
-    <div style="width:min(980px,calc(100vw - 32px));max-height:92vh;overflow:auto;">
+    <div class="candidate-detail-wide">
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
         <div>
           <div style="font-size:12px;color:var(--text-muted);">Detail Kandidat</div>
