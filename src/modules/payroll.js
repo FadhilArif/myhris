@@ -108,6 +108,8 @@ export async function generatePayslips(runId){
     const runs = await sbAll('payroll_runs', {eq:{id: runId}});
     const run = runs[0];
     const pMonth = run?.period_month, pYear = run?.period_year;
+    const cutoffStart = run?.attendance_cutoff_start || `${pYear}-${String(pMonth).padStart(2,'0')}-01`;
+    const cutoffEnd = run?.attendance_cutoff_end || new Date(Number(pYear), Number(pMonth), 0).toISOString().slice(0,10);
     const payloads = [];
     for(const e of emps){
       const details = [];
@@ -121,8 +123,8 @@ export async function generatePayslips(runId){
       });
       const myOt = overtimeReqs.filter(o => {
         if(o.employee_id !== e.id) return false;
-        const d = new Date(o.overtime_date);
-        return d.getMonth()+1 === pMonth && d.getFullYear() === pYear;
+        const d = String(o.overtime_date || '').slice(0,10);
+        return d >= cutoffStart && d <= cutoffEnd;
       });
       const totalLembur = myOt.reduce((s,o) => s + (Number(o.amount)||0), 0);
       if(totalLembur > 0){ details.push({ name:'Upah Lembur', amount: totalLembur, type:'earning' }); totalEarn += totalLembur; }
@@ -149,7 +151,16 @@ export async function generatePayslips(runId){
     }
     const { error } = await sb.from('payslips').upsert(payloads, { onConflict: 'payroll_run_id,employee_id' });
     if(error){ showToast('Gagal generate: ' + error.message, true); return; }
-    await sb.from('payroll_runs').update({ status: 'processed' }).eq('id', runId);
+    const payrollTotalGross = payloads.reduce((s,p)=>s+Number(p.total_earnings||0),0);
+    const payrollTotalDed = payloads.reduce((s,p)=>s+Number(p.total_deductions||0),0);
+    const payrollTotalNet = payloads.reduce((s,p)=>s+Number(p.net_salary||0),0);
+    await sb.from('payroll_runs').update({
+      status:'calculated',
+      total_gross:Math.round(payrollTotalGross),
+      total_deductions:Math.round(payrollTotalDed),
+      total_net:Math.round(payrollTotalNet),
+      generated_at:new Date().toISOString()
+    }).eq('id', runId);
     showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`); renderPayroll();
   } finally { btns.forEach(b => b.disabled = false); }
 }
