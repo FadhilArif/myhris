@@ -30,142 +30,6 @@ drop policy if exists "role_permissions_no_insert" on public.role_permissions;
 drop policy if exists "role_permissions_no_update" on public.role_permissions;
 drop policy if exists "role_permissions_no_delete" on public.role_permissions;
 
-create or replace function public.has_permission(p_permission text)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select case
-    when exists (
-      select 1
-      from public.permission_overrides po
-      where po.user_id = auth.uid()
-        and po.permission = p_permission
-        and po.effect = false
-    ) then false
-
-    when exists (
-      select 1
-      from public.permission_overrides po
-      where po.user_id = auth.uid()
-        and po.permission = p_permission
-        and po.effect = true
-    ) then true
-
-    else exists (
-      select 1
-      from public.role_permissions rp
-      where rp.role = public.auth_role()
-        and rp.permission = p_permission
-    )
-  end
-$$;
-
-revoke all on function public.has_permission(text) from public;
-grant execute on function public.has_permission(text) to authenticated;
-
-insert into public.role_permissions (role, permission) values
-('admin','employee.view_all'),
-('admin','employee.edit'),
-('admin','employee.create'),
-('admin','employee.delete'),
-('admin','attendance.view_all'),
-('admin','attendance.view_self'),
-('admin','shift.manage'),
-('admin','leave.view_all'),
-('admin','leave.view_self'),
-('admin','leave.create'),
-('admin','leave.manage'),
-('admin','leave.approve'),
-('admin','overtime.view_all'),
-('admin','overtime.view_self'),
-('admin','overtime.create'),
-('admin','overtime.approve'),
-('admin','payroll.view'),
-('admin','payroll.manage'),
-('admin','recruitment.manage'),
-('admin','performance.manage'),
-('admin','training.view_self'),
-('admin','training.enroll'),
-('admin','training.manage'),
-('admin','claims.view_self'),
-('admin','claims.create'),
-('admin','claims.manage'),
-('admin','settings.manage'),
-('admin','users.manage'),
-('admin','reports.view_all'),
-('admin','reports.audit'),
-('admin','reports.export'),
-
-('hr','employee.view_all'),
-('hr','employee.edit'),
-('hr','employee.create'),
-('hr','employee.delete'),
-('hr','attendance.view_all'),
-('hr','attendance.view_self'),
-('hr','shift.manage'),
-('hr','leave.view_all'),
-('hr','leave.view_self'),
-('hr','leave.create'),
-('hr','leave.manage'),
-('hr','leave.approve'),
-('hr','overtime.view_all'),
-('hr','overtime.view_self'),
-('hr','overtime.create'),
-('hr','overtime.approve'),
-('hr','payroll.view'),
-('hr','payroll.manage'),
-('hr','recruitment.manage'),
-('hr','performance.manage'),
-('hr','training.view_self'),
-('hr','training.enroll'),
-('hr','training.manage'),
-('hr','claims.view_self'),
-('hr','claims.create'),
-('hr','claims.manage'),
-('hr','reports.view_all'),
-('hr','reports.audit'),
-('hr','reports.export'),
-
-('manager','employee.view_team'),
-('manager','attendance.view_self'),
-('manager','attendance.view_team'),
-('manager','leave.view_self'),
-('manager','leave.create'),
-('manager','leave.view_team'),
-('manager','leave.approve'),
-('manager','overtime.view_self'),
-('manager','overtime.create'),
-('manager','overtime.view_team'),
-('manager','overtime.approve'),
-('manager','performance.view_team'),
-('manager','performance.manage_team'),
-('manager','training.view_self'),
-('manager','training.enroll'),
-('manager','training.view_team'),
-('manager','claims.view_self'),
-('manager','claims.create'),
-('manager','reports.view_team'),
-('manager','reports.export'),
-
-('employee','employee.view_self'),
-('employee','attendance.view_self'),
-('employee','leave.view_self'),
-('employee','leave.create'),
-('employee','overtime.view_self'),
-('employee','overtime.create'),
-('employee','payroll.view_self'),
-('employee','claims.view_self'),
-('employee','claims.create'),
-('employee','training.view_self'),
-('employee','training.enroll'),
-('employee','reports.view_self'),
-('employee','reports.export')
-on conflict (role, permission) do nothing;
-
-
 -- =========================================================
 -- 1A. PER-ACCOUNT PERMISSION OVERRIDES
 -- =========================================================
@@ -307,6 +171,142 @@ $$;
 
 revoke all on function public.save_permission_overrides(uuid,jsonb) from public;
 grant execute on function public.save_permission_overrides(uuid,jsonb) to authenticated;
+
+create or replace function public.has_permission(p_permission text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when exists (
+      select 1
+      from public.permission_overrides po
+      where po.user_id = auth.uid()
+        and po.permission = p_permission
+        and po.effect = false
+    ) then false
+
+    when exists (
+      select 1
+      from public.permission_overrides po
+      where po.user_id = auth.uid()
+        and po.permission = p_permission
+        and po.effect = true
+    ) then true
+
+    else exists (
+      select 1
+      from public.role_permissions rp
+      where rp.role = public.auth_role()
+        and rp.permission = p_permission
+    )
+  end
+$$;
+
+revoke all on function public.has_permission(text) from public;
+grant execute on function public.has_permission(text) to authenticated;
+
+insert into public.role_permissions (role, permission) values
+('admin','employee.view_all'),
+('admin','employee.edit'),
+('admin','employee.create'),
+('admin','employee.delete'),
+('admin','attendance.view_all'),
+('admin','attendance.view_self'),
+('admin','shift.manage'),
+('admin','leave.view_all'),
+('admin','leave.view_self'),
+('admin','leave.create'),
+('admin','leave.manage'),
+('admin','leave.approve'),
+('admin','overtime.view_all'),
+('admin','overtime.view_self'),
+('admin','overtime.create'),
+('admin','overtime.approve'),
+('admin','payroll.view'),
+('admin','payroll.manage'),
+('admin','recruitment.manage'),
+('admin','performance.manage'),
+('admin','training.view_self'),
+('admin','training.enroll'),
+('admin','training.manage'),
+('admin','claims.view_self'),
+('admin','claims.create'),
+('admin','claims.manage'),
+('admin','settings.manage'),
+('admin','users.manage'),
+('admin','reports.view_all'),
+('admin','reports.audit'),
+('admin','reports.export'),
+
+('hr','employee.view_all'),
+('hr','employee.edit'),
+('hr','employee.create'),
+('hr','employee.delete'),
+('hr','attendance.view_all'),
+('hr','attendance.view_self'),
+('hr','shift.manage'),
+('hr','leave.view_all'),
+('hr','leave.view_self'),
+('hr','leave.create'),
+('hr','leave.manage'),
+('hr','leave.approve'),
+('hr','overtime.view_all'),
+('hr','overtime.view_self'),
+('hr','overtime.create'),
+('hr','overtime.approve'),
+('hr','payroll.view'),
+('hr','payroll.manage'),
+('hr','recruitment.manage'),
+('hr','performance.manage'),
+('hr','training.view_self'),
+('hr','training.enroll'),
+('hr','training.manage'),
+('hr','claims.view_self'),
+('hr','claims.create'),
+('hr','claims.manage'),
+('hr','reports.view_all'),
+('hr','reports.audit'),
+('hr','reports.export'),
+
+('manager','employee.view_team'),
+('manager','attendance.view_self'),
+('manager','attendance.view_team'),
+('manager','leave.view_self'),
+('manager','leave.create'),
+('manager','leave.view_team'),
+('manager','leave.approve'),
+('manager','overtime.view_self'),
+('manager','overtime.create'),
+('manager','overtime.view_team'),
+('manager','overtime.approve'),
+('manager','performance.view_team'),
+('manager','performance.manage_team'),
+('manager','training.view_self'),
+('manager','training.enroll'),
+('manager','training.view_team'),
+('manager','claims.view_self'),
+('manager','claims.create'),
+('manager','reports.view_team'),
+('manager','reports.export'),
+
+('employee','employee.view_self'),
+('employee','attendance.view_self'),
+('employee','leave.view_self'),
+('employee','leave.create'),
+('employee','overtime.view_self'),
+('employee','overtime.create'),
+('employee','payroll.view_self'),
+('employee','claims.view_self'),
+('employee','claims.create'),
+('employee','training.view_self'),
+('employee','training.enroll'),
+('employee','reports.view_self'),
+('employee','reports.export')
+on conflict (role, permission) do nothing;
+
 
 -- =========================================================
 -- 2. MASTER DATA: SOFT DELETE
