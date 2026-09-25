@@ -1,5 +1,6 @@
 import { sb } from '../lib/supabase.js';
 import { state, CACHE, isHR, isManager } from '../state/store.js';
+import { can } from '../config/permissions.js';
 import { sbAll } from '../services/db.js';
 import { logAudit } from '../services/audit.js';
 import { el, escapeHtml, openModal, closeModal, showToast, statusBadge } from '../utils/dom.js';
@@ -7,7 +8,9 @@ import { fmtDate } from '../utils/format.js';
 
 export async function renderLeave(){
   const c = el('content');
-  c.innerHTML = `<div class="tab-row">
+  c.innerHTML = `
+    ${can('leave.create') ? `<div class="toolbar"><span>Ajukan cuti sebagai karyawan</span><button class="btn btn-primary" onclick="openLeaveRequestForm()">+ Ajukan Cuti</button></div>` : ''}
+    <div class="tab-row">
     <div class="tab active" data-tab="requests" onclick="switchLeaveTab('requests')">Pengajuan</div>
     <div class="tab" data-tab="balances" onclick="switchLeaveTab('balances')">Saldo Cuti</div>
   </div><div id="leave-body"></div>`;
@@ -46,7 +49,7 @@ export async function loadLeaveBalances(){
   const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
   const teamIds = new Set(emps.map(e => e.id));
   const scopedBalances = isManager() ? balances.filter(b => teamIds.has(b.employee_id)) : balances;
-  el('leave-body').innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openBalanceForm()">+ Set Saldo Cuti</button></div>
+  el('leave-body').innerHTML = `${can('leave.manage') ? `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openBalanceForm()">+ Set Saldo Cuti</button></div>` : ''}
     <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Jenis Cuti</th><th>Tahun</th><th>Total</th><th>Terpakai</th><th>Sisa</th></tr></thead>
     <tbody>${scopedBalances.map(b=>{
       const emp = emps.find(e=>e.id===b.employee_id); const type = types.find(t=>t.id===b.leave_type_id);
