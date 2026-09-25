@@ -185,6 +185,56 @@ export async function updatePayrollRun(runId){
   closeModal();showToast('Periode diperbarui.');renderPayroll();
 }
 
+function paymentFileName(run){
+  return 'PAYROLL_' + run.period_year + '-' + String(run.period_month).padStart(2,'0') + '_PAYMENT.csv';
+}
+
+function csvCell(value){
+  return '"' + String(value ?? '').replace(/"/g, '""') + '"';
+}
+
+export async function generatePaymentFile(runId){
+  const {data:run,error:runError}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(runError||!run){showToast('Periode payroll tidak ditemukan.',true);return;}
+  if(!['approved','paid','locked'].includes(run.status)){showToast('File pembayaran baru dapat dibuat setelah payroll disetujui.',true);return;}
+  const [slips,emps]=await Promise.all([sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees')]);
+  if(!slips.length){showToast('Belum ada slip payroll untuk dibuatkan file pembayaran.',true);return;}
+  const missing=slips.map(s=>emps.find(e=>e.id===s.employee_id)).filter(e=>!e||!e.bank_name||!e.bank_account_number);
+  if(missing.length){showToast('Ada '+missing.length+' karyawan yang belum memiliki bank/rekening. Lengkapi data rekening terlebih dahulu.',true);return;}
+  const paymentDate=run.payment_date||new Date().toISOString().slice(0,10);
+  const periodRef='PAYROLL-'+run.period_year+'-'+String(run.period_month).padStart(2,'0');
+  const headers=['employee_code','employee_name','bank_name','bank_account_number','amount','payment_date','reference','description'];
+  const rows=slips.map(s=>{
+    const e=emps.find(x=>x.id===s.employee_id)||{};
+    return [e.employee_code||'',e.full_name||'',e.bank_name||'',e.bank_account_number||'',Math.round(Number(s.net_salary)||0),paymentDate,periodRef+'-'+(e.employee_code||s.employee_id),'Gaji '+String(run.period_month).padStart(2,'0')+'/'+run.period_year].map(csvCell).join(',');
+  });
+  const csv='\uFEFF'+[headers.map(csvCell).join(','),...rows].join('\r\n');
+  const fileName=paymentFileName(run);
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  const {error}=await sb.from('payroll_runs').update({payment_status:'generated',payment_file_name:fileName,payment_file_generated_at:new Date().toISOString(),payment_file_generated_by:state.currentUser?.id||null}).eq('id',runId);
+  if(error){showToast('File berhasil diunduh, tetapi metadata pembayaran gagal disimpan: '+error.message,true);return;}
+  await logAudit('payroll.payment_file_generate','payroll_runs',runId,null,{file_name:fileName,row_count:rows.length,payment_date:paymentDate});
+  showToast('File pembayaran '+fileName+' berhasil dibuat.');
+  openPayrollRun(runId);
+}
+
+export async function markPaymentUploaded(runId){
+  const {data:run,error}=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
+  if(error||!run){showToast('Periode payroll tidak ditemukan.',true);return;}
+  if(run.status!=='approved'){showToast('Payroll harus sudah disetujui.',true);return;}
+  if(!['generated','uploaded'].includes(run.payment_status)){showToast('Buat file pembayaran terlebih dahulu.',true);return;}
+  const reference=prompt('Nomor batch / reference dari bank (opsional):',run.payment_reference||'');
+  if(reference===null)return;
+  const {error:updateError}=await sb.from('payroll_runs').update({payment_status:'uploaded',payment_uploaded_at:new Date().toISOString(),payment_uploaded_by:state.currentUser?.id||null,payment_reference:reference.trim()||null}).eq('id',runId);
+  if(updateError){showToast('Gagal mencatat upload ke bank: '+updateError.message,true);return;}
+  await logAudit('payroll.payment_file_uploaded','payroll_runs',runId,{payment_status:run.payment_status},{payment_status:'uploaded',payment_reference:reference.trim()||null});
+  showToast('Status file pembayaran dicatat sebagai terunggah ke bank.');
+  openPayrollRun(runId);
+}
+
 export async function openPayrollRun(runId){
   const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
   if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
