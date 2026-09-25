@@ -7,33 +7,89 @@ import { hitungPPh21Bulanan } from '../utils/tax.js';
 import { BPJS_CAP_KESEHATAN, BPJS_CAP_JP } from '../config/constants.js';
 
 export async function renderPayroll(){
-  if(!isHR()){ el('content').innerHTML = '<div class="empty-state">Akses ditolak.</div>'; return; }
-  const c = el('content');
-  const runs = await sbAll('payroll_runs', {order:{col:'created_at', asc:false}});
-  c.innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button></div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Periode</th><th>Status</th><th></th></tr></thead>
-    <tbody>${runs.map(r=>`<tr><td>${String(r.period_month).padStart(2,'0')}/${r.period_year}</td><td>${statusBadge(r.status)}</td>
-      <td style="text-align:right;">${r.status==='draft'?`<button class="btn btn-primary btn-sm" onclick="generatePayslips('${r.id}')">Generate Slip</button>`:''}
-      <button class="btn btn-outline btn-sm" onclick="viewPayslips('${r.id}','${r.period_month}','${r.period_year}')">Lihat Slip</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada periode.</td></tr>'}</tbody></table></div>
-    <div id="payslip-area" style="margin-top:16px;"></div>`;
+  if(!isHR()){ el('content').innerHTML='<div class="empty-state">Akses ditolak.</div>'; return; }
+  const runs=await sbAll('payroll_runs',{order:{col:'created_at',asc:false}});
+  const latest=runs[0];
+  let summary='';
+  if(latest){
+    const slips=await sbAll('payslips',{eq:{payroll_run_id:latest.id}});
+    const t=slips.reduce((a,s)=>{a.gross+=Number(s.total_earnings||0);a.ded+=Number(s.total_deductions||0);a.net+=Number(s.net_salary||0);return a;},{gross:0,ded:0,net:0});
+    summary=`<div class="grid grid-4" style="margin-bottom:16px;">
+      <div class="stat-card"><div class="stat-num">${slips.length}</div><div class="stat-label">Slip</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.gross)}</div><div class="stat-label">Gross</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.ded)}</div><div class="stat-label">Potongan</div></div>
+      <div class="stat-card"><div class="stat-num">${fmtMoney(t.net)}</div><div class="stat-label">Take Home Pay</div></div>
+    </div>`;
+  }
+  el('content').innerHTML=`<div class="toolbar">
+    <span></span>
+    <button class="btn btn-primary" onclick="openPayrollRunForm()">+ Buat Periode Payroll</button>
+  </div>
+  ${summary}
+  <div class="card" style="padding:0;">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
+      <h3 style="margin:0;font-size:15px;">Payroll</h3>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:3px;">Alur: Draft → Terhitung → Review → Disetujui → Dibayar → Terkunci</div>
+    </div>
+    <div style="overflow:auto;"><table>
+      <thead><tr><th>Periode</th><th>Cut-off</th><th>Status</th><th>Gross</th><th>Net</th><th></th></tr></thead>
+      <tbody>${runs.map(r=>`<tr>
+        <td><b>${String(r.period_month).padStart(2,'0')}/${r.period_year}</b></td>
+        <td>${r.attendance_cutoff_start?`${fmtDate(r.attendance_cutoff_start)} — ${fmtDate(r.attendance_cutoff_end)}`:'-'}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${fmtMoney(r.total_gross||0)}</td>
+        <td><b>${fmtMoney(r.total_net||0)}</b></td>
+        <td style="text-align:right;"><button class="btn btn-outline btn-sm" onclick='openPayrollRun(${JSON.stringify(r.id)})'>Kelola</button></td>
+      </tr>`).join('')||'<tr><td colspan="6" class="empty-state">Belum ada periode payroll.</td></tr>'}</tbody>
+    </table></div>
+  </div>
+  <div id="payslip-area" style="margin-top:16px;"></div>`;
 }
 
-export function openPayrollRunForm(){
-  const now = new Date();
-  openModal(`<h3>Buat Periode Payroll</h3>
-    <div class="field"><label>Bulan</label><input id="pr-month" type="number" min="1" max="12" value="${now.getMonth()+1}"></div>
-    <div class="field"><label>Tahun</label><input id="pr-year" type="number" value="${now.getFullYear()}"></div>
+export function openPayrollRunForm(run=null){
+  const now=new Date();
+  const year=run?.period_year||now.getFullYear();
+  const month=run?.period_month||now.getMonth()+1;
+  const start=run?.attendance_cutoff_start||new Date(year,month-1,1).toISOString().slice(0,10);
+  const end=run?.attendance_cutoff_end||new Date(year,month,0).toISOString().slice(0,10);
+  const payment=run?.payment_date||new Date(year,month,0).toISOString().slice(0,10);
+  openModal(`<h3>${run?'Atur Periode Payroll':'Buat Periode Payroll'}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Bulan</label><input id="pr-month" type="number" min="1" max="12" value="${month}" ${run?'disabled':''}></div>
+      <div class="field"><label>Tahun</label><input id="pr-year" type="number" value="${year}" ${run?'disabled':''}></div>
+    </div>
+    <div class="field"><label>Cut-off Mulai</label><input id="pr-start" type="date" value="${start}"></div>
+    <div class="field"><label>Cut-off Berakhir</label><input id="pr-end" type="date" value="${end}"></div>
+    <div class="field"><label>Tanggal Pembayaran</label><input id="pr-payment" type="date" value="${payment}"></div>
+    <div class="field"><label>Catatan</label><textarea id="pr-notes" rows="3">${escapeHtml(run?.notes||'')}</textarea></div>
+    ${run?`<div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;margin-bottom:10px;">Status: ${statusBadge(run.status)}</div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Batal</button>
-      <button class="btn btn-primary" onclick="savePayrollRun()">Buat</button>
+      <button class="btn btn-primary" onclick="${run?`updatePayrollRun('${run.id}')`:'savePayrollRun()'}">${run?'Simpan':'Buat'}</button>
     </div>`);
 }
 
 export async function savePayrollRun(){
-  const { error } = await sb.from('payroll_runs').insert({ period_month: Number(el('pr-month').value), period_year: Number(el('pr-year').value) });
-  if(error){ showToast(error.message, true); return; }
-  showToast('Periode dibuat.'); closeModal(); renderPayroll();
+  const month=Number(el('pr-month').value);
+  const year=Number(el('pr-year').value);
+  const start=el('pr-start').value;
+  const end=el('pr-end').value;
+  const payment=el('pr-payment').value;
+  const notes=el('pr-notes').value.trim();
+  if(!month||!year||!start||!end){showToast('Bulan, tahun, dan cut-off wajib diisi.',true);return;}
+  if(start>end){showToast('Cut-off tidak valid.',true);return;}
+  const {data:existing}=await sb.from('payroll_runs').select('id').eq('period_month',month).eq('period_year',year).maybeSingle();
+  if(existing){showToast('Periode payroll tersebut sudah ada.',true);return;}
+  const {data,error}=await sb.from('payroll_runs').insert({
+    period_month:month,period_year:year,status:'draft',
+    attendance_cutoff_start:start,attendance_cutoff_end:end,
+    payment_date:payment||null,notes:notes||null
+  }).select().single();
+  if(error){showToast(error.message,true);return;}
+  await logAudit('payroll.run_create','payroll_runs',data?.id||null,null,{period_month:month,period_year:year});
+  showToast('Periode payroll dibuat.');closeModal();renderPayroll();
 }
+
 
 export async function generatePayslips(runId){
   if(!confirm('Generate slip gaji untuk semua karyawan aktif?')) return;
