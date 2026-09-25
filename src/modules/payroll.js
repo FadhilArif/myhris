@@ -299,9 +299,10 @@ export async function printPayslip(payslipId){
         <tr><td>Departemen</td><td>: ${escapeHtml(emp.departments?.name||'-')}</td></tr>
       </table>
       <table>
+        <tr><td>Bank</td><td>: ${escapeHtml(emp.bank_name||'-')}</td></tr>
+        <tr><td>No. Rekening</td><td>: ${escapeHtml(emp.bank_account_number||'-')}</td></tr>
         <tr><td>Tanggal Cetak</td><td>: ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</td></tr>
-        <tr><td>Status</td><td>: ${run?.status === 'processed' ? 'Diproses' : (run?.status||'-')}</td></tr>
-        <tr><td>Periode</td><td>: ${periode}</td></tr>
+        <tr><td>Status</td><td>: ${run?.status||'-'}</td></tr>
       </table>
     </div>
     <div class="section-title">PENDAPATAN</div>
