@@ -613,3 +613,37 @@ database/SECURITY-HARDENING.sql
 ### Backup & Restore
 
 Backup dan restore tidak dilakukan dari browser. Untuk deployment cloud, gunakan backup platform/database yang tersedia dan dokumentasikan prosedur restore yang diuji. Jangan pernah menyimpan service-role key di frontend.
+
+
+## 🔐 Security Phase 2
+
+Branch pengembangan: `Security-Phase-2`
+
+Fase ini memperkuat security setelah Security-Hardening digabung ke `main`.
+
+### 1. Granular Permission
+Permission server-side disimpan di tabel `role_permissions` dan diperiksa melalui function `has_permission()`. UI permission tetap dipakai untuk pengalaman pengguna, tetapi database menjadi lapisan enforcement.
+
+### 2. RLS per Module
+RLS diperketat untuk master data, cuti, lembur, reimbursement, payroll, payslip, training, recruitment, dan area terkait. Scope Manager tetap menggunakan departemen pada versi ini.
+
+### 3. Audit & Login History
+Audit log dan login history dibuat immutable dari browser. Pencatatan menggunakan SECURITY DEFINER RPC sehingga identitas actor berasal dari `auth.uid()`.
+
+### 4. Session Security
+Frontend memiliki inactivity timeout 30 menit. Supabase tetap menangani refresh session/JWT; timeout ini adalah lapisan tambahan untuk workstation yang ditinggalkan dalam keadaan login. Tidak ada OTP tambahan setiap login.
+
+### 5. Soft Delete
+Master data penting menggunakan `deleted_at` dan `deleted_by`. Data transaksi penting tidak dihapus permanen dari browser agar histori tetap tersedia.
+
+### 6. Backup Strategy
+Backup production berada di level platform/database, bukan browser. Sebelum migration besar, pastikan backup terbaru tersedia.
+
+### 7. Restore Procedure
+Prosedur restore terdokumentasi di `database/BACKUP-RESTORE-PROCEDURE.md` dan perlu diuji pada environment non-production.
+
+### SQL Phase 2
+Jalankan:
+`database/SECURITY-PHASE-2.sql`
+
+**Urutan aman:** backup → jalankan SQL → uji Admin → HR → Manager → Employee → uji modul kritis → lanjutkan deployment.
