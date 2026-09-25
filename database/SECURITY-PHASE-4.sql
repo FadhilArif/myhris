@@ -181,8 +181,7 @@ returns uuid
 language plpgsql
 security definer
 set search_path = public
-as $
-declare
+as 'declare
   v_user_id uuid;
   v_job public.job_postings%rowtype;
   v_profile public.candidate_profiles%rowtype;
@@ -192,7 +191,7 @@ begin
   v_user_id := auth.uid();
 
   if v_user_id is null then
-    raise exception 'Not authenticated';
+    raise exception ''Not authenticated'';
   end if;
 
   -- Lock the job row so two simultaneous submissions for the
@@ -205,8 +204,8 @@ begin
 
   if not found
      or v_job.deleted_at is not null
-     or v_job.status <> 'open' then
-    raise exception 'Lowongan tidak tersedia';
+     or v_job.status <> ''open'' then
+    raise exception ''Lowongan tidak tersedia'';
   end if;
 
   select *
@@ -215,19 +214,19 @@ begin
   where id = v_user_id;
 
   if not found
-     or nullif(trim(v_profile.full_name), '') is null
-     or nullif(trim(v_profile.phone), '') is null then
-    raise exception 'Lengkapi profil pelamar terlebih dahulu';
+     or nullif(trim(v_profile.full_name), '''') is null
+     or nullif(trim(v_profile.phone), '''') is null then
+    raise exception ''Lengkapi profil pelamar terlebih dahulu'';
   end if;
 
   select count(*)
   into v_recent_count
   from public.candidates
   where applicant_id = v_user_id
-    and applied_at >= now() - interval '24 hours';
+    and applied_at >= now() - interval ''24 hours'';
 
   if v_recent_count >= 20 then
-    raise exception 'Batas pengajuan lamaran sementara tercapai. Coba lagi nanti.';
+    raise exception ''Batas pengajuan lamaran sementara tercapai. Coba lagi nanti.'';
   end if;
 
   if exists (
@@ -236,7 +235,7 @@ begin
     where job_posting_id = p_job_posting_id
       and applicant_id = v_user_id
   ) then
-    raise exception 'Anda sudah melamar lowongan ini';
+    raise exception ''Anda sudah melamar lowongan ini'';
   end if;
 
   insert into public.candidates (
@@ -251,28 +250,27 @@ begin
     p_job_posting_id,
     v_user_id,
     trim(v_profile.full_name),
-    coalesce(nullif(trim(v_profile.email), ''), (
+    coalesce(nullif(trim(v_profile.email), ''''), (
       select email from auth.users where id = v_user_id
     )),
     trim(v_profile.phone),
-    'applied'
+    ''applied''
   )
   returning id into v_application_id;
 
   perform public.record_audit(
-    'recruitment.application_submit',
-    'candidates',
+    ''recruitment.application_submit'',
+    ''candidates'',
     v_application_id,
     null,
     jsonb_build_object(
-      'job_posting_id', p_job_posting_id,
-      'stage', 'applied'
+      ''job_posting_id'', p_job_posting_id,
+      ''stage'', ''applied''
     )
   );
 
   return v_application_id;
-end;
-$;
+end;';
 
 revoke all on function public.submit_candidate_application(uuid) from public;
 grant execute on function public.submit_candidate_application(uuid) to authenticated;
