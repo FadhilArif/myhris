@@ -111,7 +111,7 @@ export async function loadDetailOverview(){
         <tr><td style="color:var(--text-muted);">Jabatan</td><td>${escapeHtml(emp.positions?.name||'-')}</td></tr>
         <tr><td style="color:var(--text-muted);">Tanggal Bergabung</td><td>${fmtDate(emp.join_date)}</td></tr>
         <tr><td style="color:var(--text-muted);">Status</td><td>${statusBadge(emp.employment_status)}</td></tr>
-        ${(isHR() || (state.me && state.me.id===emp.id)) ? `<tr><td style="color:var(--text-muted);">Gaji Pokok</td><td>${fmtMoney(emp.basic_salary)}</td></tr>` : ''}
+        ${(isHR() || (state.me && state.me.id===emp.id)) ? `<tr><td style="color:var(--text-muted);">Gaji Pokok</td><td>${fmtMoney(emp.basic_salary)}</td></tr><tr><td style="color:var(--text-muted);">Nama Bank</td><td>${escapeHtml(emp.bank_name||'-')}</td></tr><tr><td style="color:var(--text-muted);">Nomor Rekening</td><td>${escapeHtml(emp.bank_account_number||'-')}</td></tr>` : ''}
       </tbody></table>
     </div>`;
 }
