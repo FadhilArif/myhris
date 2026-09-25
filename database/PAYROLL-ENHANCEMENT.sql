@@ -36,6 +36,13 @@ alter table public.payroll_runs
   add column if not exists paid_at timestamptz,
   add column if not exists locked_at timestamptz;
 
+-- Lepas constraint status lama terlebih dahulu.
+-- Jika constraint lama masih hanya mengenal "processed",
+-- migrasi "processed" -> "calculated" akan gagal sebelum kita sempat
+-- menggantinya dengan workflow status baru.
+alter table public.payroll_runs
+  drop constraint if exists payroll_runs_status_check;
+
 -- Migrasi status lama ke workflow baru.
 update public.payroll_runs
 set status = 'calculated'
