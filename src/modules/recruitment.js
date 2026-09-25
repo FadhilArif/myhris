@@ -14,6 +14,7 @@ export async function renderRecruitment(){
   ]);
 
   c.innerHTML = `<div class="toolbar"><span></span>
+      <button class="btn btn-outline" onclick="openCareerPage()">↗ Buka Halaman Karir</button>
       <button class="btn btn-outline" onclick="copyCareerPageLink()">🔗 Salin Link Halaman Karir</button>
       <button class="btn btn-primary" onclick="openJobForm()">+ Buka Lowongan</button>
     </div>
@@ -35,8 +36,13 @@ export async function renderRecruitment(){
     <div id="candidate-area" style="margin-top:18px;"></div>`;
 }
 
+export function openCareerPage(){
+  const url = new URL('/career/', window.location.origin).href;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 export function copyCareerPageLink(){
-  const url = location.origin + '/career/';
+  const url = new URL('/career/', window.location.origin).href;
   navigator.clipboard.writeText(url).then(()=>{
     showToast('Link halaman karir disalin: '+url);
   }).catch(()=>{
