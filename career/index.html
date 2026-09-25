@@ -492,7 +492,10 @@ function renderMyApps(){
             <div style="font-size:12px;color:var(--text-muted);">
               ${app.converted_employee_id ? '✅ Kandidat sudah dikonversi menjadi karyawan.' : (latest ? 'Riwayat tahap tersimpan.' : 'Menunggu pembaruan tahap.')}
             </div>
-            <button class="btn btn-outline btn-sm" onclick='showApplicationHistory(${JSON.stringify(app.id)})'>Lihat Riwayat</button>
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick='openCandidateDocuments(${JSON.stringify(app.id)})'>Berkas</button>
+                <button class="btn btn-outline btn-sm" onclick='showApplicationHistory(${JSON.stringify(app.id)})'>Lihat Riwayat</button>
+              </div>
           </div>
         </div>`;
     }).join('')}`;
@@ -525,6 +528,192 @@ function showApplicationHistory(candidateId){
       <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
     </div>
   `);
+}
+
+// ---- Berkas pelamar ----
+function candidateDocumentTypeOptions(){
+  return [
+    ['CV','CV'],
+    ['KTP','KTP'],
+    ['Ijazah','Ijazah'],
+    ['Sertifikat','Sertifikat'],
+    ['Portofolio','Portofolio'],
+    ['Dokumen Lain','Dokumen Lain']
+  ];
+}
+
+async function openCandidateDocuments(candidateId){
+  const app = MY_APPS.find(a=>a.id===candidateId);
+  if(!app) return;
+
+  const { data: docs, error } = await sb
+    .from('candidate_documents')
+    .select('*')
+    .eq('candidate_id', candidateId)
+    .order('created_at', { ascending:false });
+
+  if(error){
+    showToast('Gagal memuat berkas: '+error.message, true);
+    return;
+  }
+
+  openModal(`
+    <div>
+      <div style="font-size:12px;color:var(--text-muted);">Berkas Lamaran</div>
+      <h2 style="font-size:21px;margin-top:3px;">${escapeHtml(app.job_postings?.title || '-')}</h2>
+    </div>
+
+    <div class="card" style="margin-top:16px;background:#FAFAF6;">
+      <h3 style="font-size:15px;margin-bottom:10px;">Tambah Berkas</h3>
+      <div class="field">
+        <label>Jenis Berkas</label>
+        <select id="career-doc-type">
+          ${candidateDocumentTypeOptions().map(([value,label])=>`<option value="${value}">${label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>File</label>
+        <input id="career-doc-file" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx">
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);">Maks. 10 MB. Berkas disimpan private dan hanya dapat dilihat kamu serta tim rekrutmen.</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+        <button class="btn btn-primary" onclick='uploadCareerCandidateDocument(${JSON.stringify(candidateId)})'>Upload Berkas</button>
+      </div>
+    </div>
+
+    <div style="display:grid;gap:9px;margin-top:14px;">
+      ${(docs||[]).map(d=>`
+        <div class="card" style="margin:0;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);">${escapeHtml(d.document_type)}</div>
+            <div style="font-size:13px;font-weight:800;margin-top:2px;">${escapeHtml(d.file_name)}</div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-outline btn-sm" onclick='openCareerCandidateDocument(${JSON.stringify(d.id)})'>Lihat</button>
+            <button class="btn btn-outline btn-sm" onclick='deleteCareerCandidateDocument(${JSON.stringify(d.id)})'>Hapus</button>
+          </div>
+        </div>`).join('') || '<div class="empty-state">Belum ada berkas.</div>'}
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+      <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
+    </div>
+  `);
+}
+
+async function uploadCareerCandidateDocument(candidateId){
+  const file = el('career-doc-file')?.files?.[0];
+  const type = el('career-doc-type')?.value || 'Dokumen Lain';
+
+  if(!file){ showToast('Pilih file terlebih dahulu.', true); return; }
+  if(file.size > 10 * 1024 * 1024){ showToast('Ukuran file maksimal 10 MB.', true); return; }
+
+  const allowed = new Set([
+    'application/pdf','image/jpeg','image/png','image/webp',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ]);
+
+  if(!allowed.has(file.type)){
+    showToast('Tipe file tidak diizinkan.', true);
+    return;
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const storagePath = `${candidateId}/${crypto.randomUUID()}-${safeName}`;
+
+  const { error: uploadError } = await sb.storage
+    .from('candidate-documents')
+    .upload(storagePath, file, { contentType:file.type, upsert:false });
+
+  if(uploadError){
+    showToast('Gagal upload: '+uploadError.message, true);
+    return;
+  }
+
+  const { error: metaError } = await sb
+    .from('candidate_documents')
+    .insert({
+      candidate_id: candidateId,
+      document_type: type,
+      file_name: file.name,
+      storage_path: storagePath,
+      file_size: file.size,
+      file_type: file.type,
+      uploaded_by: SESSION.user.id
+    });
+
+  if(metaError){
+    await sb.storage.from('candidate-documents').remove([storagePath]);
+    showToast('Metadata berkas gagal disimpan: '+metaError.message, true);
+    return;
+  }
+
+  showToast('Berkas berhasil diupload.');
+  await openCandidateDocuments(candidateId);
+}
+
+async function openCareerCandidateDocument(docId){
+  const { data: doc, error } = await sb
+    .from('candidate_documents')
+    .select('storage_path')
+    .eq('id', docId)
+    .maybeSingle();
+
+  if(error || !doc){
+    showToast('Berkas tidak ditemukan.', true);
+    return;
+  }
+
+  const { data, error: urlError } = await sb.storage
+    .from('candidate-documents')
+    .createSignedUrl(doc.storage_path, 10 * 60);
+
+  if(urlError || !data?.signedUrl){
+    showToast('Gagal membuka berkas: '+(urlError?.message || 'signed URL tidak tersedia'), true);
+    return;
+  }
+
+  window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+}
+
+async function deleteCareerCandidateDocument(docId){
+  if(!confirm('Hapus berkas ini?')) return;
+
+  const { data: doc, error } = await sb
+    .from('candidate_documents')
+    .select('candidate_id,storage_path')
+    .eq('id', docId)
+    .maybeSingle();
+
+  if(error || !doc){
+    showToast('Berkas tidak ditemukan.', true);
+    return;
+  }
+
+  const { error: storageError } = await sb.storage
+    .from('candidate-documents')
+    .remove([doc.storage_path]);
+
+  if(storageError){
+    showToast('Gagal menghapus file: '+storageError.message, true);
+    return;
+  }
+
+  const { error: deleteError } = await sb
+    .from('candidate_documents')
+    .delete()
+    .eq('id', docId);
+
+  if(deleteError){
+    showToast('Gagal menghapus metadata: '+deleteError.message, true);
+    return;
+  }
+
+  showToast('Berkas dihapus.');
+  await openCandidateDocuments(doc.candidate_id);
 }
 
 // ---- Autentikasi pelamar ----
