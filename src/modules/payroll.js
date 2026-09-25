@@ -737,43 +737,43 @@ export function showPayslipDetail(slip, periode, emp){
     .reduce((sum,d)=>sum+Number(d.amount||0),0);
 
   const earningsRows = details.filter(d => d.type === 'earning').map(d =>
-    \`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;"><span>\${escapeHtml(d.name)}</span><span style="font-weight:600;">\${fmtMoney(d.amount)}</span></div>\`
-  ).join('') || \`<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px;"><span>Gaji Pokok</span><span style="font-weight:600;">\${fmtMoney(slip.basic_salary)}</span></div>\`;
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;"><span>${escapeHtml(d.name)}</span><span style="font-weight:600;">${fmtMoney(d.amount)}</span></div>`
+  ).join('') || `<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:13px;"><span>Gaji Pokok</span><span style="font-weight:600;">${fmtMoney(slip.basic_salary)}</span></div>`;
 
   const deductionsRows = details.filter(d => d.type === 'deduction').map(d =>
-    \`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;"><span>\${escapeHtml(d.name)}</span><span style="font-weight:600;color:var(--danger);">− \${fmtMoney(d.amount)}</span></div>\`
-  ).join('') || \`<div style="padding:8px 0;font-size:13px;color:var(--text-muted);text-align:center;">Tidak ada potongan</div>\`;
+    `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #e0e0e0;font-size:13px;"><span>${escapeHtml(d.name)}</span><span style="font-weight:600;color:var(--danger);">− ${fmtMoney(d.amount)}</span></div>`
+  ).join('') || `<div style="padding:8px 0;font-size:13px;color:var(--text-muted);text-align:center;">Tidak ada potongan</div>`;
 
-  c = \`
+  c = `
     <h3 style="margin:0 0 4px;">Detail Slip Gaji</h3>
-    <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 16px;">\${escapeHtml(emp.full_name)} • Periode \${periode}</p>
+    <p style="font-size:12.5px;color:var(--text-muted);margin:0 0 16px;">${escapeHtml(emp.full_name)} • Periode ${periode}</p>
     <div style="background:#E9F5EE;border-radius:8px;padding:14px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
       <div style="font-size:13px;color:#256F4D;font-weight:600;">GAJI BERSIH</div>
-      <div style="font-family:'Manrope';font-weight:800;font-size:22px;color:var(--accent-dark);">\${fmtMoney(slip.net_salary)}</div>
+      <div style="font-family:'Manrope';font-weight:800;font-size:22px;color:var(--accent-dark);">${fmtMoney(slip.net_salary)}</div>
     </div>
     <div class="card" style="background:#FAFAF6;margin-bottom:14px;">
       <div style="font-size:12px;font-weight:800;margin-bottom:8px;">Sumber Perhitungan</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
-        <div><span style="color:var(--text-muted);">Lembur</span><br><b>\${fmtMoney(overtimeAmount)}</b></div>
-        <div><span style="color:var(--text-muted);">Reimbursement</span><br><b>\${fmtMoney(claims.approved_amount||0)}</b></div>
-        <div><span style="color:var(--text-muted);">Unpaid Leave</span><br><b>\${fmtMoney(leave.unpaid_leave_amount||0)}</b></div>
-        <div><span style="color:var(--text-muted);">Hadir</span><br><b>\${attendance.present_days||0} hari</b></div>
-        <div><span style="color:var(--text-muted);">Terlambat</span><br><b>\${attendance.late_days||0} hari</b></div>
-        <div><span style="color:var(--text-muted);">Tidak Hadir</span><br><b>\${attendance.absent_days||0} hari</b></div>
+        <div><span style="color:var(--text-muted);">Lembur</span><br><b>${fmtMoney(overtimeAmount)}</b></div>
+        <div><span style="color:var(--text-muted);">Reimbursement</span><br><b>${fmtMoney(claims.approved_amount||0)}</b></div>
+        <div><span style="color:var(--text-muted);">Unpaid Leave</span><br><b>${fmtMoney(leave.unpaid_leave_amount||0)}</b></div>
+        <div><span style="color:var(--text-muted);">Hadir</span><br><b>${attendance.present_days||0} hari</b></div>
+        <div><span style="color:var(--text-muted);">Terlambat</span><br><b>${attendance.late_days||0} hari</b></div>
+        <div><span style="color:var(--text-muted);">Tidak Hadir</span><br><b>${attendance.absent_days||0} hari</b></div>
       </div>
     </div>
     <div style="margin-bottom:14px;">
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--accent-dark);padding-bottom:6px;border-bottom:2px solid var(--border);margin-bottom:6px;">Pendapatan</div>
-      \${earningsRows}
-      <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;background:#FAFAF6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;"><span>Total Pendapatan</span><span>\${fmtMoney(slip.total_earnings)}</span></div>
+      ${earningsRows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;background:#FAFAF6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;"><span>Total Pendapatan</span><span>${fmtMoney(slip.total_earnings)}</span></div>
     </div>
     <div style="margin-bottom:14px;">
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--danger);padding-bottom:6px;border-bottom:2px solid var(--border);margin-bottom:6px;">Potongan</div>
-      \${deductionsRows}
-      <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;background:#FBEAE6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;color:var(--danger);"><span>Total Potongan</span><span>− \${fmtMoney(slip.total_deductions)}</span></div>
+      ${deductionsRows}
+      <div style="display:flex;justify-content:space-between;padding:10px 0;font-weight:700;background:#FBEAE6;margin-top:4px;padding-left:8px;padding-right:8px;border-radius:4px;color:var(--danger);"><span>Total Potongan</span><span>− ${fmtMoney(slip.total_deductions)}</span></div>
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-outline" onclick="closeModal()">Tutup</button>
-    </div>\`;
+    </div>`;
   openModal(c);
 }
