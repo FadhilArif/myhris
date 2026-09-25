@@ -37,12 +37,30 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.role_permissions rp
-    where rp.role = public.auth_role()
-      and rp.permission = p_permission
-  )
+  select case
+    when exists (
+      select 1
+      from public.permission_overrides po
+      where po.user_id = auth.uid()
+        and po.permission = p_permission
+        and po.effect = false
+    ) then false
+
+    when exists (
+      select 1
+      from public.permission_overrides po
+      where po.user_id = auth.uid()
+        and po.permission = p_permission
+        and po.effect = true
+    ) then true
+
+    else exists (
+      select 1
+      from public.role_permissions rp
+      where rp.role = public.auth_role()
+        and rp.permission = p_permission
+    )
+  end
 $$;
 
 revoke all on function public.has_permission(text) from public;
@@ -146,6 +164,149 @@ insert into public.role_permissions (role, permission) values
 ('employee','reports.view_self'),
 ('employee','reports.export')
 on conflict (role, permission) do nothing;
+
+
+-- =========================================================
+-- 1A. PER-ACCOUNT PERMISSION OVERRIDES
+-- =========================================================
+
+create table if not exists public.permission_overrides (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  permission text not null,
+  effect boolean not null,
+  updated_by uuid references auth.users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(user_id, permission)
+);
+
+alter table public.permission_overrides enable row level security;
+
+drop policy if exists "permission_overrides_select" on public.permission_overrides;
+create policy "permission_overrides_select"
+on public.permission_overrides
+for select
+to authenticated
+using (
+  user_id = auth.uid()
+  or public.is_admin()
+);
+
+drop policy if exists "permission_overrides_insert_admin" on public.permission_overrides;
+create policy "permission_overrides_insert_admin"
+on public.permission_overrides
+for insert
+to authenticated
+with check (
+  public.is_admin()
+  and user_id <> auth.uid()
+);
+
+drop policy if exists "permission_overrides_update_admin" on public.permission_overrides;
+create policy "permission_overrides_update_admin"
+on public.permission_overrides
+for update
+to authenticated
+using (
+  public.is_admin()
+  and user_id <> auth.uid()
+)
+with check (
+  public.is_admin()
+  and user_id <> auth.uid()
+);
+
+drop policy if exists "permission_overrides_delete_admin" on public.permission_overrides;
+create policy "permission_overrides_delete_admin"
+on public.permission_overrides
+for delete
+to authenticated
+using (
+  public.is_admin()
+  and user_id <> auth.uid()
+);
+
+create index if not exists permission_overrides_user_idx
+  on public.permission_overrides(user_id);
+
+create index if not exists permission_overrides_permission_idx
+  on public.permission_overrides(permission);
+
+create or replace function public.save_permission_overrides(
+  p_user_id uuid,
+  p_overrides jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_old jsonb;
+  v_new jsonb;
+begin
+  if auth.uid() is null or not public.is_admin() then
+    raise exception 'Not authorized';
+  end if;
+
+  if p_user_id = auth.uid() then
+    raise exception 'Cannot modify active admin account';
+  end if;
+
+  if not exists (
+    select 1 from public.profiles
+    where id = p_user_id
+  ) then
+    raise exception 'Target user not found';
+  end if;
+
+  select coalesce(
+    jsonb_object_agg(po.permission, po.effect),
+    '{}'::jsonb
+  )
+  into v_old
+  from public.permission_overrides po
+  where po.user_id = p_user_id;
+
+  delete from public.permission_overrides
+  where user_id = p_user_id;
+
+  insert into public.permission_overrides (
+    user_id,
+    permission,
+    effect,
+    updated_by
+  )
+  select
+    p_user_id,
+    x.key,
+    (x.value #>> '{}')::boolean,
+    auth.uid()
+  from jsonb_each(coalesce(p_overrides, '{}'::jsonb)) x
+  where jsonb_typeof(x.value) = 'boolean'
+    and exists (
+      select 1
+      from public.role_permissions rp
+      where rp.permission = x.key
+    );
+
+  v_new := coalesce(p_overrides, '{}'::jsonb);
+
+  perform public.record_audit(
+    'UPDATE_PERMISSION_OVERRIDES',
+    'profiles',
+    p_user_id,
+    v_old,
+    v_new
+  );
+
+  return true;
+end;
+$$;
+
+revoke all on function public.save_permission_overrides(uuid,jsonb) from public;
+grant execute on function public.save_permission_overrides(uuid,jsonb) to authenticated;
 
 -- =========================================================
 -- 2. MASTER DATA: SOFT DELETE
