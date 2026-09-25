@@ -848,3 +848,61 @@ public.add_candidate_internal_note(candidate_id, note)
 
 Catatan tidak ikut ditampilkan pada halaman Career publik/pelamar.
 
+
+
+## 💰 Payroll Enhancement
+
+Branch: `Payroll-Enhancement`
+
+### Data Karyawan
+Data karyawan sekarang mendukung:
+- Nama bank
+- Nomor rekening
+
+Form edit karyawan dan import CSV sudah mendukung kedua field tersebut. Nomor rekening hanya ditampilkan pada area yang berhak melihat data payroll/detail sensitif, dan ikut tersedia pada proses payroll/payslip.
+
+### Workflow Payroll
+Periode payroll sekarang menggunakan alur:
+```
+Draft
+  ↓
+Terhitung
+  ↓
+Review
+  ↓
+Disetujui
+  ↓
+Dibayar
+  ↓
+Terkunci
+```
+
+Periode payroll juga menyimpan:
+- attendance/payroll cut-off mulai dan berakhir;
+- tanggal pembayaran;
+- catatan payroll;
+- total gross;
+- total potongan;
+- total take home pay;
+- timestamp generate/review/approval/payment/lock.
+
+### Payroll Calculation
+Generate payroll tetap menggunakan mesin PPh 21 dan komponen payroll yang sudah ada, tetapi overtime yang masuk ke payroll sekarang mengikuti rentang cut-off periode.
+
+Status `processed` lama dimigrasikan menjadi `calculated`.
+
+### Payroll Adjustment
+Database menyediakan `payroll_adjustments` untuk pendapatan/potongan manual seperti bonus, insentif, koreksi, pinjaman, atau adjustment sekali bayar.
+
+### Payroll Component
+Form komponen payroll sekarang menyediakan metode:
+- Nominal tetap
+- Persentase gaji pokok
+- BPJS Kesehatan
+- BPJS JHT
+- BPJS JP
+- PPh 21
+
+### Payment
+Status `Dibayar` hanya mencatat bahwa proses pembayaran sudah dilakukan. MyHRIS belum terhubung langsung ke bank/disbursement API.
+
