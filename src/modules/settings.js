@@ -146,8 +146,37 @@ export async function quickSave(table, reload){
 }
 
 export async function quickDelete(table, id, reload){
-  if(!confirm('Hapus data ini?')) return;
-  const { error } = await sb.from(table).delete().eq('id', id);
-  if(error){ showToast('Gagal menghapus: '+error.message, true); return; }
-  showToast('Data dihapus.'); window[reload]();
+  if(!confirm('Data akan dinonaktifkan (soft delete) agar histori tetap aman. Lanjutkan?')) return;
+
+  const softDeleteTables = [
+    'departments',
+    'positions',
+    'leave_types',
+    'payroll_components',
+    'training_programs',
+    'job_postings'
+  ];
+
+  if(softDeleteTables.includes(table)){
+    const { data, error } = await sb.rpc('soft_delete_master', {
+      p_table: table,
+      p_id: id
+    });
+
+    if(error){
+      showToast('Gagal menonaktifkan data: ' + error.message, true);
+      return;
+    }
+
+    if(!data){
+      showToast('Data tidak ditemukan atau sudah dinonaktifkan.', true);
+      return;
+    }
+
+    showToast('Data dinonaktifkan. Histori tetap tersimpan.');
+    window[reload]();
+    return;
+  }
+
+  showToast('Penghapusan untuk tabel ini dinonaktifkan demi keamanan.', true);
 }
