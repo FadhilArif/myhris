@@ -105,78 +105,372 @@ export async function savePayrollRun(){
 }
 
 
+function dateInRange(value, start, end){
+  const d = String(value || '').slice(0,10);
+  return !!d && d >= start && d <= end;
+}
+
+function overlapDays(startDate, endDate, rangeStart, rangeEnd){
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const rs = new Date(rangeStart);
+  const re = new Date(rangeEnd);
+
+  const from = start > rs ? start : rs;
+  const to = end < re ? end : re;
+  if(to < from) return 0;
+
+  return Math.floor((to - from) / 86400000) + 1;
+}
+
+function normalizeAttendanceStatus(status){
+  return String(status || '').trim().toLowerCase().replace(/[\s-]+/g,'_');
+}
+
+function buildAttendanceSummary(records, leaveRequests){
+  let present = 0;
+  let late = 0;
+  let absent = 0;
+  let other = 0;
+  let missingCheckout = 0;
+
+  const approvedLeaveDates = new Set();
+
+  for(const leave of leaveRequests){
+    const start = new Date(leave.start_date);
+    const end = new Date(leave.end_date);
+    for(let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
+      approvedLeaveDates.add(d.toISOString().slice(0,10));
+    }
+  }
+
+  for(const record of records){
+    const status = normalizeAttendanceStatus(record.status);
+    if(status === 'present') present++;
+    else if(status === 'late') late++;
+    else if(['absent','alpha','no_show','unpaid'].includes(status)){
+      if(!approvedLeaveDates.has(String(record.work_date).slice(0,10))) absent++;
+    } else {
+      other++;
+    }
+
+    if(record.check_in && !record.check_out) missingCheckout++;
+  }
+
+  return {
+    recorded_days: records.length,
+    present_days: present,
+    late_days: late,
+    absent_days: absent,
+    other_days: other,
+    missing_checkout: missingCheckout
+  };
+}
+
 export async function generatePayslips(runId){
-  if(!confirm('Generate slip gaji untuk semua karyawan aktif?')) return;
+  if(!confirm('Generate ulang slip gaji dengan data Attendance, Overtime, Leave, Claims, dan Adjustment?')) return;
+
   const btns = document.querySelectorAll('button');
   btns.forEach(b => b.disabled = true);
-  showToast('Memproses slip gaji…');
+  showToast('Menggabungkan data HRIS ke payroll…');
+
   try {
-    const [emps, components, overtimeReqs] = await Promise.all([
+    const runs = await sbAll('payroll_runs', {eq:{id:runId}});
+    const run = runs[0];
+
+    if(!run){
+      showToast('Periode payroll tidak ditemukan.', true);
+      return;
+    }
+
+    const pMonth = run.period_month;
+    const pYear = run.period_year;
+    const cutoffStart = run.attendance_cutoff_start || pYear + '-' + String(pMonth).padStart(2,'0') + '-01';
+    const cutoffEnd = run.attendance_cutoff_end || new Date(Number(pYear), Number(pMonth), 0).toISOString().slice(0,10);
+    const workingDays = Number(run.working_days_per_month) > 0 ? Number(run.working_days_per_month) : 22;
+    const deductAttendanceAbsence = !!run.deduct_attendance_absence;
+    const dailyRateDivisor = workingDays;
+
+    const [
+      emps,
+      components,
+      overtimeReqs,
+      attendanceRows,
+      leaveReqs,
+      leaveTypes,
+      claims,
+      adjustments
+    ] = await Promise.all([
       sbAll('employees', {eq:{employment_status:'active'}}),
       sbAll('payroll_components'),
-      sbAll('overtime_requests', {eq:{status:'approved'}})
+      sbAll('overtime_requests', {eq:{status:'approved'}}),
+      sbAll('attendance'),
+      sbAll('leave_requests', {eq:{status:'approved'}}),
+      sbAll('leave_types'),
+      sbAll('reimbursement_claims', {eq:{status:'approved'}}),
+      sbAll('payroll_adjustments', {eq:{payroll_run_id:runId}})
     ]);
-    if(!emps.length){ showToast('Tidak ada karyawan aktif.', true); return; }
-    const earnings = components.filter(c => c.component_type === 'earning');
-    const deductions = components.filter(c => c.component_type === 'deduction');
-    const runs = await sbAll('payroll_runs', {eq:{id: runId}});
-    const run = runs[0];
-    const pMonth = run?.period_month, pYear = run?.period_year;
-    const cutoffStart = run?.attendance_cutoff_start || `${pYear}-${String(pMonth).padStart(2,'0')}-01`;
-    const cutoffEnd = run?.attendance_cutoff_end || new Date(Number(pYear), Number(pMonth), 0).toISOString().slice(0,10);
+
+    if(!emps.length){
+      showToast('Tidak ada karyawan aktif.', true);
+      return;
+    }
+
+    const earnings = components.filter(c => c.component_type === 'earning' && !c.deleted_at);
+    const deductions = components.filter(c => c.component_type === 'deduction' && !c.deleted_at);
+
     const payloads = [];
+
     for(const e of emps){
       const details = [];
       const gajiPokok = Number(e.basic_salary) || 0;
       let totalEarn = gajiPokok;
-      details.push({ name:'Gaji Pokok', amount: gajiPokok, type:'earning' });
+      let totalDed = 0;
+
+      details.push({name:'Gaji Pokok',amount:gajiPokok,type:'earning'});
+
       let totalTunjangan = 0;
       earnings.filter(x => x.name !== 'Gaji Pokok').forEach(comp => {
-        const amt = comp.is_percentage ? (gajiPokok * comp.default_amount / 100) : Number(comp.default_amount);
-        details.push({ name: comp.name, amount: amt, type:'earning' }); totalEarn += amt; totalTunjangan += amt;
+        const amount = comp.is_percentage
+          ? gajiPokok * Number(comp.default_amount || 0) / 100
+          : Number(comp.default_amount || 0);
+
+        const rounded = Math.round(amount);
+        details.push({name:comp.name,amount:rounded,type:'earning'});
+        totalEarn += rounded;
+        totalTunjangan += rounded;
       });
-      const myOt = overtimeReqs.filter(o => {
-        if(o.employee_id !== e.id) return false;
-        const d = String(o.overtime_date || '').slice(0,10);
-        return d >= cutoffStart && d <= cutoffEnd;
-      });
-      const totalLembur = myOt.reduce((s,o) => s + (Number(o.amount)||0), 0);
-      if(totalLembur > 0){ details.push({ name:'Upah Lembur', amount: totalLembur, type:'earning' }); totalEarn += totalLembur; }
+
+      const employeeAttendance = attendanceRows.filter(a =>
+        a.employee_id === e.id &&
+        dateInRange(a.work_date, cutoffStart, cutoffEnd)
+      );
+
+      const employeeLeaves = leaveReqs.filter(l =>
+        l.employee_id === e.id &&
+        overlapDays(l.start_date,l.end_date,cutoffStart,cutoffEnd) > 0
+      );
+
+      const attendanceSummary = buildAttendanceSummary(employeeAttendance, employeeLeaves);
+
+      let attendanceAbsenceDays = 0;
+      if(deductAttendanceAbsence){
+        attendanceAbsenceDays = attendanceSummary.absent_days;
+        if(attendanceAbsenceDays > 0){
+          const amount = Math.round((gajiPokok / dailyRateDivisor) * attendanceAbsenceDays);
+          details.push({
+            name:'Potongan Absensi Tidak Hadir',
+            amount,
+            type:'deduction',
+            source:'attendance'
+          });
+          totalDed += amount;
+        }
+      }
+
+      let unpaidLeaveDays = 0;
+      let paidLeaveDays = 0;
+      let neutralLeaveDays = 0;
+
+      for(const leave of employeeLeaves){
+        const type = leaveTypes.find(t => t.id === leave.leave_type_id);
+        const treatment = type?.payroll_treatment || 'neutral';
+        const days = overlapDays(leave.start_date, leave.end_date, cutoffStart, cutoffEnd);
+
+        if(treatment === 'unpaid') unpaidLeaveDays += days;
+        else if(treatment === 'paid') paidLeaveDays += days;
+        else neutralLeaveDays += days;
+      }
+
+      if(unpaidLeaveDays > 0){
+        const amount = Math.round((gajiPokok / dailyRateDivisor) * unpaidLeaveDays);
+        details.push({
+          name:'Potongan Unpaid Leave',
+          amount,
+          type:'deduction',
+          source:'leave'
+        });
+        totalDed += amount;
+      }
+
+      const myOt = overtimeReqs.filter(o =>
+        o.employee_id === e.id &&
+        dateInRange(o.overtime_date, cutoffStart, cutoffEnd)
+      );
+
+      const overtimeHours = myOt.reduce((sum,o) => sum + (Number(o.hours) || 0), 0);
+      const totalLembur = myOt.reduce((sum,o) => sum + (Number(o.amount) || 0), 0);
+
+      if(totalLembur > 0){
+        const rounded = Math.round(totalLembur);
+        details.push({
+          name:'Upah Lembur',
+          amount:rounded,
+          type:'earning',
+          source:'overtime'
+        });
+        totalEarn += rounded;
+      }
+
+      const employeeClaims = claims.filter(claim =>
+        claim.employee_id === e.id &&
+        dateInRange(claim.approved_at || claim.submitted_at, cutoffStart, cutoffEnd)
+      );
+
+      const claimTotal = employeeClaims.reduce((sum,claim) => sum + (Number(claim.amount) || 0), 0);
+
+      if(claimTotal > 0){
+        const rounded = Math.round(claimTotal);
+        details.push({
+          name:'Reimbursement',
+          amount:rounded,
+          type:'earning',
+          source:'claims',
+          count:employeeClaims.length
+        });
+        totalEarn += rounded;
+      }
+
+      const employeeAdjustments = adjustments.filter(a => a.employee_id === e.id);
+
+      for(const adjustment of employeeAdjustments){
+        const amount = Math.round(Number(adjustment.amount) || 0);
+        if(amount <= 0) continue;
+
+        details.push({
+          name:adjustment.name,
+          amount,
+          type:adjustment.adjustment_type,
+          source:'payroll_adjustment'
+        });
+
+        if(adjustment.adjustment_type === 'earning') totalEarn += amount;
+        else totalDed += amount;
+      }
+
       const bpjsKes = Math.min(gajiPokok, BPJS_CAP_KESEHATAN) * 0.01;
       const bpjsJHT = gajiPokok * 0.02;
       const bpjsJP = Math.min(gajiPokok, BPJS_CAP_JP) * 0.01;
       const ptkpKey = e.ptkp_status || 'TK/0';
-      const pph21 = hitungPPh21Bulanan(gajiPokok, totalTunjangan + totalLembur, ptkpKey);
-      let totalDed = 0;
+
+      const pph21 = hitungPPh21Bulanan(
+        gajiPokok,
+        totalTunjangan + totalLembur,
+        ptkpKey
+      );
+
       deductions.forEach(comp => {
-        let amt = 0;
+        let amount = 0;
+
         switch(comp.calc_type){
-          case 'bpjs_kesehatan': amt = bpjsKes; break;
-          case 'bpjs_jht': amt = bpjsJHT; break;
-          case 'bpjs_jp': amt = bpjsJP; break;
-          case 'pph21': amt = pph21; break;
-          case 'percentage': amt = gajiPokok * comp.default_amount / 100; break;
-          default: amt = Number(comp.default_amount) || 0;
+          case 'bpjs_kesehatan':
+            amount = bpjsKes;
+            break;
+          case 'bpjs_jht':
+            amount = bpjsJHT;
+            break;
+          case 'bpjs_jp':
+            amount = bpjsJP;
+            break;
+          case 'pph21':
+            amount = pph21;
+            break;
+          case 'percentage':
+            amount = gajiPokok * Number(comp.default_amount || 0) / 100;
+            break;
+          default:
+            amount = Number(comp.default_amount) || 0;
         }
-        amt = Math.round(amt);
-        details.push({ name: comp.name, amount: amt, type:'deduction' }); totalDed += amt;
+
+        amount = Math.round(amount);
+        details.push({name:comp.name,amount,type:'deduction'});
+        totalDed += amount;
       });
-      payloads.push({ payroll_run_id: runId, employee_id: e.id, basic_salary: gajiPokok, total_earnings: Math.round(totalEarn), total_deductions: Math.round(totalDed), net_salary: Math.round(totalEarn - totalDed), details });
+
+      payloads.push({
+        payroll_run_id:runId,
+        employee_id:e.id,
+        basic_salary:gajiPokok,
+        total_earnings:Math.round(totalEarn),
+        total_deductions:Math.round(totalDed),
+        net_salary:Math.round(totalEarn - totalDed),
+        details,
+        attendance_summary:{
+          ...attendanceSummary,
+          deducted_absence_days:attendanceAbsenceDays,
+          deducted_absence_amount:attendanceAbsenceDays
+            ? Math.round((gajiPokok / dailyRateDivisor) * attendanceAbsenceDays)
+            : 0
+        },
+        leave_summary:{
+          paid_days:paidLeaveDays,
+          unpaid_days:unpaidLeaveDays,
+          neutral_days:neutralLeaveDays,
+          unpaid_leave_amount:unpaidLeaveDays
+            ? Math.round((gajiPokok / dailyRateDivisor) * unpaidLeaveDays)
+            : 0
+        },
+        claim_summary:{
+          approved_count:employeeClaims.length,
+          approved_amount:Math.round(claimTotal)
+        }
+      });
     }
-    const { error } = await sb.from('payslips').upsert(payloads, { onConflict: 'payroll_run_id,employee_id' });
-    if(error){ showToast('Gagal generate: ' + error.message, true); return; }
-    const payrollTotalGross = payloads.reduce((s,p)=>s+Number(p.total_earnings||0),0);
-    const payrollTotalDed = payloads.reduce((s,p)=>s+Number(p.total_deductions||0),0);
-    const payrollTotalNet = payloads.reduce((s,p)=>s+Number(p.net_salary||0),0);
+
+    const {error} = await sb.from('payslips')
+      .upsert(payloads,{onConflict:'payroll_run_id,employee_id'});
+
+    if(error){
+      showToast('Gagal generate payroll: ' + error.message, true);
+      return;
+    }
+
+    const payrollTotalGross = payloads.reduce((sum,p) => sum + Number(p.total_earnings || 0),0);
+    const payrollTotalDed = payloads.reduce((sum,p) => sum + Number(p.total_deductions || 0),0);
+    const payrollTotalNet = payloads.reduce((sum,p) => sum + Number(p.net_salary || 0),0);
+
     await sb.from('payroll_runs').update({
       status:'calculated',
       total_gross:Math.round(payrollTotalGross),
       total_deductions:Math.round(payrollTotalDed),
       total_net:Math.round(payrollTotalNet),
       generated_at:new Date().toISOString()
-    }).eq('id', runId);
-    showToast(`✅ ${emps.length} slip gaji berhasil dibuat.`); renderPayroll();
-  } finally { btns.forEach(b => b.disabled = false); }
+    }).eq('id',runId);
+
+    const sourceTotals = payloads.reduce((acc,p) => {
+      const a = p.attendance_summary || {};
+      const l = p.leave_summary || {};
+      const c = p.claim_summary || {};
+      acc.late += Number(a.late_days || 0);
+      acc.absent += Number(a.absent_days || 0);
+      acc.overtime += (p.details || [])
+        .filter(d=>d.source==='overtime')
+        .reduce((sum,d)=>sum+Number(d.amount||0),0);
+      acc.claims += Number(c.approved_amount || 0);
+      acc.unpaidLeave += Number(l.unpaid_leave_amount || 0);
+      return acc;
+    },{late:0,absent:0,overtime:0,claims:0,unpaidLeave:0});
+
+    await logAudit(
+      'payroll.generate_integrated',
+      'payroll_runs',
+      runId,
+      null,
+      {
+        employee_count:payloads.length,
+        attendance_absent_days:sourceTotals.absent,
+        attendance_late_days:sourceTotals.late,
+        overtime_amount:sourceTotals.overtime,
+        reimbursement_amount:sourceTotals.claims,
+        unpaid_leave_deduction:sourceTotals.unpaidLeave
+      }
+    );
+
+    showToast('✅ Payroll berhasil dihitung dari data HRIS.');
+    renderPayroll();
+  } finally {
+    btns.forEach(b => b.disabled = false);
+  }
 }
 
 export async function viewPayslips(runId, month, year){
