@@ -61,6 +61,15 @@ export function openPayrollRunForm(run=null){
     <div class="field"><label>Cut-off Mulai</label><input id="pr-start" type="date" value="${start}"></div>
     <div class="field"><label>Cut-off Berakhir</label><input id="pr-end" type="date" value="${end}"></div>
     <div class="field"><label>Tanggal Pembayaran</label><input id="pr-payment" type="date" value="${payment}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Hari Kerja Payroll / Bulan</label><input id="pr-working-days" type="number" min="1" max="31" step="0.5" value="${run?.working_days_per_month||22}"></div>
+      <div class="field"><label>Potong Absensi Alpha/Tidak Hadir</label>
+        <select id="pr-deduct-absence">
+          <option value="false" ${run?.deduct_attendance_absence?'':'selected'}>Tidak</option>
+          <option value="true" ${run?.deduct_attendance_absence?'selected':''}>Ya</option>
+        </select>
+      </div>
+    </div>
     <div class="field"><label>Catatan</label><textarea id="pr-notes" rows="3">${escapeHtml(run?.notes||'')}</textarea></div>
     ${run?`<div style="background:#FAFAF6;padding:10px 12px;border-radius:8px;margin-bottom:10px;">Status: ${statusBadge(run.status)}</div>`:''}
     <div style="display:flex;gap:8px;justify-content:flex-end;">
@@ -75,6 +84,8 @@ export async function savePayrollRun(){
   const start=el('pr-start').value;
   const end=el('pr-end').value;
   const payment=el('pr-payment').value;
+  const workingDays=Number(el('pr-working-days').value)||22;
+  const deductAbsence=el('pr-deduct-absence').value==='true';
   const notes=el('pr-notes').value.trim();
   if(!month||!year||!start||!end){showToast('Bulan, tahun, dan cut-off wajib diisi.',true);return;}
   if(start>end){showToast('Cut-off tidak valid.',true);return;}
@@ -83,7 +94,10 @@ export async function savePayrollRun(){
   const {data,error}=await sb.from('payroll_runs').insert({
     period_month:month,period_year:year,status:'draft',
     attendance_cutoff_start:start,attendance_cutoff_end:end,
-    payment_date:payment||null,notes:notes||null
+    payment_date:payment||null,
+    working_days_per_month:workingDays,
+    deduct_attendance_absence:deductAbsence,
+    notes:notes||null
   }).select().single();
   if(error){showToast(error.message,true);return;}
   await logAudit('payroll.run_create','payroll_runs',data?.id||null,null,{period_month:month,period_year:year});
@@ -177,9 +191,21 @@ export async function updatePayrollRun(runId){
   const run=await sb.from('payroll_runs').select('*').eq('id',runId).maybeSingle();
   if(run.error||!run.data){showToast('Periode tidak ditemukan.',true);return;}
   if(!['draft','calculated','under_review'].includes(run.data.status)){showToast('Periode sudah final dan tidak dapat diedit.',true);return;}
-  const start=el('pr-start').value,end=el('pr-end').value,payment=el('pr-payment').value,notes=el('pr-notes').value.trim();
+  const start=el('pr-start').value,
+    end=el('pr-end').value,
+    payment=el('pr-payment').value,
+    workingDays=Number(el('pr-working-days').value)||22,
+    deductAbsence=el('pr-deduct-absence').value==='true',
+    notes=el('pr-notes').value.trim();
   if(start&&end&&start>end){showToast('Cut-off tidak valid.',true);return;}
-  const {error}=await sb.from('payroll_runs').update({attendance_cutoff_start:start||null,attendance_cutoff_end:end||null,payment_date:payment||null,notes:notes||null}).eq('id',runId);
+  const {error}=await sb.from('payroll_runs').update({
+    attendance_cutoff_start:start||null,
+    attendance_cutoff_end:end||null,
+    payment_date:payment||null,
+    working_days_per_month:workingDays,
+    deduct_attendance_absence:deductAbsence,
+    notes:notes||null
+  }).eq('id',runId);
   if(error){showToast(error.message,true);return;}
   await logAudit('payroll.run_update','payroll_runs',runId,null,{attendance_cutoff_start:start,attendance_cutoff_end:end,payment_date:payment});
   closeModal();showToast('Periode diperbarui.');renderPayroll();
