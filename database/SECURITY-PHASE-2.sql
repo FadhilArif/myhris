@@ -529,8 +529,8 @@ as $$
 declare
   v_row_count integer := 0;
 begin
-  if auth.uid() is null or not public.has_permission('settings.manage') then
-    raise exception 'Not authorized';
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
   end if;
 
   case p_table
