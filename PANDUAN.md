@@ -749,3 +749,29 @@ backup
 ```
 
 Catatan: fase berikutnya akan menangani database constraints/validation, abuse protection, dan security monitoring secara bertahap.
+
+
+### Secure Candidate Application RPC
+
+Halaman karir tidak lagi menulis langsung ke tabel `candidates`.
+
+Pengajuan lamaran menggunakan:
+```
+public.submit_candidate_application(job_posting_id)
+```
+
+RPC mengambil identitas pelamar dari `auth.uid()` dan data profil dari `candidate_profiles`. Browser tidak dapat mengirim `applicant_id`, nama, email, atau telepon untuk menyamarkan identitas pelamar lain.
+
+Perlindungan tambahan:
+- hanya lowongan `open` yang dapat menerima lamaran;
+- satu akun tidak dapat melamar lowongan yang sama dua kali;
+- maksimal 20 pengajuan lamaran dalam 24 jam per akun;
+- pengajuan dicatat ke audit log.
+
+### Database Validation Recruitment
+
+Phase 4 menambahkan CHECK constraint `NOT VALID` untuk:
+- status lowongan: `open` / `closed`;
+- tahap kandidat: `applied`, `screening`, `interview`, `offer`, `hired`, `rejected`.
+
+`NOT VALID` dipakai supaya data lama tidak langsung membuat migration gagal; aturan tetap berlaku pada data baru dan perubahan berikutnya.
