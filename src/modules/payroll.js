@@ -689,6 +689,66 @@ export async function deletePayrollAdjustment(id,runId){
   showToast('Adjustment dihapus.');
   openAdjustmentManager(runId);
 }
+export async function openPayrollReports(){
+  const runs=await sbAll('payroll_runs',{order:{col:'created_at',asc:false}});
+  if(!runs.length){showToast('Belum ada payroll.',true);return;}
+  const years=[...new Set(runs.map(r=>r.period_year))].sort((a,b)=>b-a);
+  const html='<div style="width:min(980px,calc(100vw - 32px));max-height:90vh;overflow:auto;">'+
+    '<h3>Laporan Payroll</h3>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">'+
+      '<div class="field"><label>Tahun</label><select id="rpt-year">'+years.map(y=>'<option value="'+y+'">'+y+'</option>').join('')+'</select></div>'+
+      '<div class="field"><label>Periode</label><select id="rpt-run"><option value="">Pilih periode…</option></select></div>'+
+    '</div>'+
+    '<div id="payroll-report-body" class="empty-state">Pilih periode.</div>'+
+    '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn btn-outline" onclick="closeModal()">Tutup</button><button class="btn btn-primary" onclick="exportPayrollReport()">Export CSV</button></div>'+
+  '</div>';
+  openModal(html);
+  const yearEl=el('rpt-year'), runEl=el('rpt-run');
+  const refreshRuns=()=>{const y=Number(yearEl.value);runEl.innerHTML='<option value="">Pilih periode…</option>'+runs.filter(r=>r.period_year===y).map(r=>'<option value="'+r.id+'">'+String(r.period_month).padStart(2,'0')+'/'+r.period_year+'</option>').join('');};
+  yearEl.addEventListener('change',()=>{refreshRuns();renderPayrollReport();});
+  runEl.addEventListener('change',renderPayrollReport);
+  refreshRuns();
+}
+
+async function renderPayrollReport(){
+  const runId=el('rpt-run')?.value;
+  if(!runId){el('payroll-report-body').innerHTML='<div class="empty-state">Pilih periode.</div>';return;}
+  const [runs,slips,emps,depts,adjustments]=await Promise.all([
+    sbAll('payroll_runs',{eq:{id:runId}}),sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees'),sbAll('departments'),sbAll('payroll_adjustments',{eq:{payroll_run_id:runId}})
+  ]);
+  const run=runs[0];
+  const deptMap={};
+  slips.forEach(s=>{const e=emps.find(x=>x.id===s.employee_id)||{};const id=e.department_id||'unknown';if(!deptMap[id])deptMap[id]={name:'Umum',count:0,gross:0,ded:0,net:0};deptMap[id].count++;deptMap[id].gross+=Number(s.total_earnings||0);deptMap[id].ded+=Number(s.total_deductions||0);deptMap[id].net+=Number(s.net_salary||0);});
+  Object.keys(deptMap).forEach(id=>{if(id!=='unknown')deptMap[id].name=depts.find(d=>d.id===id)?.name||'Tidak diketahui';});
+  const intg=slips.reduce((a,s)=>{const at=s.attendance_summary||{},lv=s.leave_summary||{},cl=s.claim_summary||{};a.absent+=Number(at.absent_days||0);a.late+=Number(at.late_days||0);a.claim+=Number(cl.approved_amount||0);a.unpaid+=Number(lv.unpaid_leave_amount||0);(Array.isArray(s.details)?s.details:[]).filter(d=>d.source==='overtime').forEach(d=>a.ot+=Number(d.amount||0));return a;},{absent:0,late:0,claim:0,unpaid:0,ot:0});
+  el('payroll-report-body').innerHTML='<div class="grid grid-4" style="margin-bottom:12px;">'+
+    '<div class="stat-card"><div class="stat-num">'+slips.length+'</div><div class="stat-label">Karyawan</div></div>'+
+    '<div class="stat-card"><div class="stat-num">'+fmtMoney(run?.total_gross||0)+'</div><div class="stat-label">Gross</div></div>'+
+    '<div class="stat-card"><div class="stat-num">'+fmtMoney(run?.total_deductions||0)+'</div><div class="stat-label">Potongan</div></div>'+
+    '<div class="stat-card"><div class="stat-num">'+fmtMoney(run?.total_net||0)+'</div><div class="stat-label">Net</div></div>'+
+  '</div>'+
+  '<div class="card" style="background:#FAFAF6;"><b>Sumber Payroll</b><div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px;font-size:12px;">'+
+    '<div>Lembur<br><b>'+fmtMoney(intg.ot)+'</b></div><div>Claim<br><b>'+fmtMoney(intg.claim)+'</b></div><div>Unpaid Leave<br><b>'+fmtMoney(intg.unpaid)+'</b></div><div>Terlambat<br><b>'+intg.late+' hari</b></div><div>Tidak Hadir<br><b>'+intg.absent+' hari</b></div>'+
+  '</div></div>'+
+  '<div class="card" style="padding:0;margin-top:12px;overflow:auto;"><table><thead><tr><th>Departemen</th><th>Karyawan</th><th>Gross</th><th>Potongan</th><th>Net</th></tr></thead><tbody>'+
+    Object.values(deptMap).sort((a,b)=>b.net-a.net).map(d=>'<tr><td>'+escapeHtml(d.name)+'</td><td>'+d.count+'</td><td>'+fmtMoney(d.gross)+'</td><td>'+fmtMoney(d.ded)+'</td><td><b>'+fmtMoney(d.net)+'</b></td></tr>').join('')+
+  '</tbody></table></div>'+
+  '<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;">Status payroll: '+escapeHtml(run?.status||'-')+' • Adjustment '+adjustments.length+' item.</div>';
+}
+
+export async function exportPayrollReport(){
+  const runId=el('rpt-run')?.value;
+  if(!runId){showToast('Pilih periode.',true);return;}
+  const [runs,slips,emps,depts]=await Promise.all([sbAll('payroll_runs',{eq:{id:runId}}),sbAll('payslips',{eq:{payroll_run_id:runId}}),sbAll('employees'),sbAll('departments')]);
+  const run=runs[0];
+  const out=[['Kode','Nama','Departemen','Bank','No Rekening','Gaji Pokok','Gross','Potongan','Net'].map(csvCell).join(',')];
+  slips.forEach(s=>{const e=emps.find(x=>x.id===s.employee_id)||{};const d=depts.find(x=>x.id===e.department_id)||{};out.push([e.employee_code||'',e.full_name||'',d.name||'',e.bank_name||'',e.bank_account_number||'',s.basic_salary||0,s.total_earnings||0,s.total_deductions||0,s.net_salary||0].map(csvCell).join(','));});
+  const csv='\uFEFF'+out.join('\r\n');
+  const name='PAYROLL_REPORT_'+run.period_year+'-'+String(run.period_month).padStart(2,'0')+'.csv';
+  const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+  await logAudit('payroll.report_export','payroll_runs',runId,null,{file_name:name,row_count:slips.length});
+  showToast('Laporan payroll berhasil diexport.');
+}
 export async function renderMyPayslip(){
   const c = el('content');
   const ME = state.me;
