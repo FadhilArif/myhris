@@ -57,8 +57,38 @@ export async function savePosition(){
 export async function loadLeaveTypeSettings(){
   const list = await sbAll('leave_types', {order:{col:'name'}});
   el('settings-body').innerHTML = `<div class="toolbar"><span></span><button class="btn btn-primary btn-sm" onclick="openLeaveTypeForm()">+ Tambah Jenis Cuti</button></div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Nama</th><th>Default Hari/Tahun</th><th></th></tr></thead>
-    <tbody>${list.map(t=>`<tr><td>${escapeHtml(t.name)}</td><td>${t.default_days_per_year}</td><td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="quickDelete('leave_types','${t.id}','loadLeaveTypeSettings')">Hapus</button></td></tr>`).join('') || '<tr><td colspan="3" class="empty-state">Belum ada jenis cuti.</td></tr>'}</tbody></table></div>`;
+    <div class="card" style="padding:0;overflow:auto;"><table><thead><tr><th>Nama</th><th>Default Hari/Tahun</th><th>Dampak Payroll</th><th></th></tr></thead>
+    <tbody>${list.map(t=>`<tr>
+      <td>${escapeHtml(t.name)}</td>
+      <td>${t.default_days_per_year}</td>
+      <td>
+        <select onchange="setLeavePayrollTreatment('${t.id}', this.value)">
+          <option value="neutral" ${(t.payroll_treatment||'neutral')==='neutral'?'selected':''}>Tidak memengaruhi payroll</option>
+          <option value="paid" ${t.payroll_treatment==='paid'?'selected':''}>Dibayar</option>
+          <option value="unpaid" ${t.payroll_treatment==='unpaid'?'selected':''}>Tidak dibayar</option>
+        </select>
+      </td>
+      <td style="text-align:right;"><button class="btn btn-danger btn-sm" onclick="quickDelete('leave_types','${t.id}','loadLeaveTypeSettings')">Hapus</button></td>
+    </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Belum ada jenis cuti.</td></tr>'}</tbody></table></div>`;
+}
+
+export async function setLeavePayrollTreatment(id, treatment){
+  if(!['neutral','paid','unpaid'].includes(treatment)){
+    showToast('Dampak payroll tidak valid.', true);
+    return;
+  }
+  const { error } = await sb.from('leave_types')
+    .update({ payroll_treatment: treatment })
+    .eq('id', id);
+
+  if(error){
+    showToast('Gagal mengubah dampak payroll: ' + error.message, true);
+    return;
+  }
+
+  showToast('Dampak payroll jenis cuti diperbarui.');
+  CACHE.leaveTypes = await sbAll('leave_types');
+  loadLeaveTypeSettings();
 }
 
 export function openLeaveTypeForm(){
@@ -72,7 +102,11 @@ export function openLeaveTypeForm(){
 }
 
 export async function saveLeaveType(){
-  const { error } = await sb.from('leave_types').insert({ name: el('lt-name').value.trim(), default_days_per_year: Number(el('lt-days').value)||0 });
+  const { error } = await sb.from('leave_types').insert({
+    name: el('lt-name').value.trim(),
+    default_days_per_year: Number(el('lt-days').value)||0,
+    payroll_treatment: 'neutral'
+  });
   if(error){ showToast(error.message, true); return; }
   showToast('Jenis cuti ditambahkan.'); closeModal();
   CACHE.leaveTypes = await sbAll('leave_types'); loadLeaveTypeSettings();
