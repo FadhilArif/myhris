@@ -40,8 +40,8 @@ export async function loadLeaveRequests(){
 
   const pending = reqs.filter(r => r.status === 'pending');
 
-  el('leave-body').innerHTML = \`
-    \${pending.length ? \`
+  el('leave-body').innerHTML = `
+    ${pending.length ? `
       <div class="toolbar" style="gap:8px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
           <input id="leave-select-all" type="checkbox" onchange="toggleAllLeave(this.checked)">
@@ -50,32 +50,32 @@ export async function loadLeaveRequests(){
         <span id="leave-selected-count" style="font-size:12px;color:var(--text-muted);">0 dipilih</span>
         <span style="flex:1;"></span>
         <button class="btn btn-primary" onclick="approveSelectedLeave()">✓ Setujui Terpilih</button>
-      </div>\` : ''}
+      </div>` : ''}
 
     <div class="card" style="padding:0;overflow:auto;">
       <table>
         <thead><tr><th style="width:42px;"></th><th>Karyawan</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          \${reqs.map(r=>{
+          ${reqs.map(r=>{
             const emp=emps.find(e=>e.id===r.employee_id);
             const type=types.find(t=>t.id===r.leave_type_id);
 
-            return \`<tr>
-              <td>\${r.status==='pending' ? \`<input class="leave-select" type="checkbox" value="\${escapeHtml(r.id)}" onchange="updateLeaveSelectedCount()">\` : ''}</td>
-              <td>\${escapeHtml(emp?emp.full_name:'-')}</td>
-              <td>\${escapeHtml(type?type.name:'-')}</td>
-              <td>\${fmtDate(r.start_date)} - \${fmtDate(r.end_date)}</td>
-              <td>\${r.total_days}</td>
-              <td>\${escapeHtml(r.reason||'-')}</td>
-              <td>\${statusBadge(r.status)}</td>
-              <td style="text-align:right;">\${r.status==='pending' ? \`
-                <button class="btn btn-primary btn-sm" onclick="decideLeave('\${r.id}','approved','\${r.employee_id}','\${r.leave_type_id}',\${r.total_days})">Setujui</button>
-                <button class="btn btn-danger btn-sm" onclick="decideLeave('\${r.id}','rejected')">Tolak</button>\` : ''}</td>
-            </tr>\`;
+            return `<tr>
+              <td>${r.status==='pending' ? `<input class="leave-select" type="checkbox" value="${escapeHtml(r.id)}" onchange="updateLeaveSelectedCount()">` : ''}</td>
+              <td>${escapeHtml(emp?emp.full_name:'-')}</td>
+              <td>${escapeHtml(type?type.name:'-')}</td>
+              <td>${fmtDate(r.start_date)} - ${fmtDate(r.end_date)}</td>
+              <td>${r.total_days}</td>
+              <td>${escapeHtml(r.reason||'-')}</td>
+              <td>${statusBadge(r.status)}</td>
+              <td style="text-align:right;">${r.status==='pending' ? `
+                <button class="btn btn-primary btn-sm" onclick="decideLeave('${r.id}','approved','${r.employee_id}','${r.leave_type_id}',${r.total_days})">Setujui</button>
+                <button class="btn btn-danger btn-sm" onclick="decideLeave('${r.id}','rejected')">Tolak</button>` : ''}</td>
+            </tr>`;
           }).join('') || '<tr><td colspan="8" class="empty-state">Belum ada pengajuan.</td></tr>'}
         </tbody>
       </table>
-    </div>\`;
+    </div>`;
 
   updateLeaveSelectedCount();
 }
@@ -85,7 +85,7 @@ export function updateLeaveSelectedCount(){
   const total=document.querySelectorAll('.leave-select').length;
   const count=el('leave-selected-count');
 
-  if(count) count.textContent=\`\${selected} dipilih\`;
+  if(count) count.textContent=`${selected} dipilih`;
 
   const all=el('leave-select-all');
   if(all){
@@ -109,7 +109,7 @@ export async function approveSelectedLeave(){
     return;
   }
 
-  if(!confirm(\`Setujui \${ids.length} pengajuan cuti sekaligus?\`)) return;
+  if(!confirm(`Setujui ${ids.length} pengajuan cuti sekaligus?`)) return;
 
   const buttons=document.querySelectorAll('button');
   buttons.forEach(b=>b.disabled=true);
@@ -125,9 +125,9 @@ export async function approveSelectedLeave(){
     const approvedCount=Number(data?.approved_count||0);
 
     if(approvedCount!==ids.length){
-      showToast(\`\${approvedCount} dari \${ids.length} pengajuan berhasil disetujui. Sebagian mungkin sudah berubah status.\`,true);
+      showToast(`${approvedCount} dari ${ids.length} pengajuan berhasil disetujui. Sebagian mungkin sudah berubah status.`,true);
     }else{
-      showToast(\`✓ \${approvedCount} pengajuan cuti berhasil disetujui.\`);
+      showToast(`✓ ${approvedCount} pengajuan cuti berhasil disetujui.`);
     }
 
     await loadLeaveRequests();
