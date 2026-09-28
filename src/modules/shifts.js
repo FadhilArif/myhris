@@ -6,6 +6,11 @@ import { el, escapeHtml, openModal, closeModal, showToast, badge } from '../util
 let SHIFT_ASSIGNMENT_EMPLOYEES = [];
 let SHIFT_ASSIGNMENT_SHIFTS = [];
 
+function isHeadEmployee(employee){
+  const position = String(employee.positions?.name || '').trim().toLowerCase();
+  return position.includes('kepala') || position.includes('head') || position.includes('chief') || position.includes('supervisor');
+}
+
 function getShiftDepartments(){
   return [...new Set(
     SHIFT_ASSIGNMENT_EMPLOYEES
@@ -28,13 +33,19 @@ export function renderShiftAssignmentRows(){
       if(!query) return true;
       const name = String(e.full_name || '').toLowerCase();
       const code = String(e.employee_code || '').toLowerCase();
-      return name.includes(query) || code.includes(query);
+      const position = String(e.positions?.name || '').toLowerCase();
+      return name.includes(query) || code.includes(query) || position.includes(query);
     })
     .sort((a,b)=>{
       const da = String(a.departments?.name || 'Tanpa Divisi');
       const db = String(b.departments?.name || 'Tanpa Divisi');
       const depCmp = da.localeCompare(db,'id');
-      return depCmp || String(a.full_name||'').localeCompare(String(b.full_name||''),'id');
+      if(depCmp) return depCmp;
+
+      const headCmp = Number(isHeadEmployee(b)) - Number(isHeadEmployee(a));
+      if(headCmp) return headCmp;
+
+      return String(a.full_name||'').localeCompare(String(b.full_name||''),'id');
     });
 
   if(count){
@@ -67,8 +78,15 @@ export function renderShiftAssignmentRows(){
     rows.push(`
       <tr>
         <td>
-          <b>${escapeHtml(e.full_name)}</b><br>
+          <b>${escapeHtml(e.full_name)}</b>
+          ${isHeadEmployee(e)
+            ? '<span class="badge badge-warning" style="margin-left:6px;">Kepala</span>'
+            : ''}
+          <br>
           <span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e.employee_code||'')}</span>
+          ${e.positions?.name
+            ? `<span style="font-size:11.5px;color:var(--text-muted);"> • ${escapeHtml(e.positions.name)}</span>`
+            : ''}
         </td>
         <td>${escapeHtml(departmentName)}</td>
         <td>${s
@@ -90,7 +108,7 @@ export async function renderShifts(){
   const c = el('content');
   const [shifts, emps] = await Promise.all([
     sbAll('work_shifts', {order:{col:'start_time'}}),
-    sbAll('employees', {select:'*, departments(name)', eq:{employment_status:'active'}, order:{col:'full_name'}})
+    sbAll('employees', {select:'*, departments(name), positions(name)', eq:{employment_status:'active'}, order:{col:'full_name'}})
   ]);
 
   SHIFT_ASSIGNMENT_EMPLOYEES = emps;
@@ -131,7 +149,7 @@ export async function renderShifts(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;min-width:min(680px,100%);justify-content:flex-end;">
         <div class="field" style="margin:0;min-width:220px;flex:1;">
           <label style="font-size:11px;">Cari Karyawan</label>
-          <input id="shift-search" type="search" placeholder="Cari nama atau kode karyawan..." oninput="renderShiftAssignmentRows()">
+          <input id="shift-search" type="search" placeholder="Cari nama, kode, atau jabatan..." oninput="renderShiftAssignmentRows()">
         </div>
         <div class="field" style="margin:0;min-width:220px;">
           <label style="font-size:11px;">Filter Divisi</label>
