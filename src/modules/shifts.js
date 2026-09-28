@@ -218,5 +218,16 @@ export async function saveAssignShift(empId){
   const shiftId = el('as-shift').value || null;
   const { error } = await sb.from('employees').update({ shift_id: shiftId }).eq('id', empId);
   if(error){ showToast(error.message, true); return; }
-  showToast('Shift diperbarui.'); closeModal(); renderShifts();
+
+  // Perbarui data lokal tanpa merender ulang seluruh halaman,
+  // sehingga search + filter divisi tetap tersimpan.
+  const employee = SHIFT_ASSIGNMENT_EMPLOYEES.find(e => e.id === empId);
+  if(employee) employee.shift_id = shiftId;
+
+  const cachedEmployee = CACHE.employees?.find?.(e => e.id === empId);
+  if(cachedEmployee) cachedEmployee.shift_id = shiftId;
+
+  showToast('Shift diperbarui.');
+  closeModal();
+  renderShiftAssignmentRows();
 }
