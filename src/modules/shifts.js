@@ -8,7 +8,7 @@ let SHIFT_ASSIGNMENT_SHIFTS = [];
 
 function isHeadEmployee(employee){
   const position = String(employee.positions?.name || '').trim().toLowerCase();
-  return position.includes('kepala') || position.includes('head') || position.includes('chief') || position.includes('supervisor');
+  return position.includes('kepala');
 }
 
 function getShiftDepartments(){
