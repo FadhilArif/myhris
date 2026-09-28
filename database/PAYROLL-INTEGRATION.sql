@@ -207,6 +207,70 @@ create index if not exists reimbursement_claims_employee_approved_idx
 
 
 
+
+
+-- =========================================================
+-- BULK APPROVAL CUTI
+-- =========================================================
+-- Satu RPC untuk menyetujui banyak pengajuan cuti.
+-- Scope mengikuti permission HR/Admin atau Manager satu departemen.
+
+create or replace function public.approve_leave_bulk(
+  p_request_ids uuid[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_approved integer := 0;
+begin
+
+  if not public.has_permission('leave.approve') then
+    raise exception 'Anda tidak memiliki izin untuk menyetujui cuti';
+  end if;
+
+  update public.leave_requests lr
+  set
+    status = 'approved',
+    approved_at = now(),
+    approved_by = public.auth_employee_id()
+  from public.employees e
+  where lr.id = any(p_request_ids)
+    and lr.status = 'pending'
+    and e.id = lr.employee_id
+    and e.deleted_at is null
+    and (
+      public.has_permission('leave.view_all')
+      or (
+        public.has_permission('leave.team')
+        and e.department_id = public.auth_department_id()
+      )
+      or (
+        public.has_permission('leave.approve')
+        and e.department_id = public.auth_department_id()
+      )
+    );
+
+  get diagnostics v_approved = row_count;
+
+  return jsonb_build_object(
+    'approved_count',
+    v_approved
+  );
+
+end;
+$;
+
+revoke all
+on function public.approve_leave_bulk(uuid[])
+from public;
+
+grant execute
+on function public.approve_leave_bulk(uuid[])
+to authenticated;
+
 -- =========================================================
 -- 5. BULK OVERTIME APPROVAL
 -- =========================================================
