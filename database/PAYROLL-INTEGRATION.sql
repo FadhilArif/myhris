@@ -205,6 +205,67 @@ create index if not exists leave_requests_employee_dates_idx
 create index if not exists reimbursement_claims_employee_approved_idx
   on public.reimbursement_claims(employee_id, approved_at);
 
+
+
+-- =========================================================
+-- 5. BULK OVERTIME APPROVAL
+-- =========================================================
+-- Satu request RPC untuk menyetujui banyak lembur sekaligus.
+-- Lebih efisien daripada melakukan SELECT + UPDATE satu per satu
+-- dari browser.
+
+create or replace function public.approve_overtime_bulk(
+  p_request_ids uuid[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $
+declare
+  v_approved integer := 0;
+begin
+  if not public.has_permission('overtime.approve') then
+    raise exception 'Anda tidak memiliki izin untuk menyetujui lembur';
+  end if;
+
+  update public.overtime_requests o
+  set
+    status = 'approved',
+    approved_by = public.auth_employee_id(),
+    approved_at = now(),
+    amount = round(
+      (
+        coalesce(e.basic_salary, 0)
+        / 173.0
+      )
+      * coalesce(o.hours, 0)
+      * coalesce(o.rate_multiplier, 1.5)
+    )
+  from public.employees e
+  where o.id = any(p_request_ids)
+    and o.status = 'pending'
+    and e.id = o.employee_id
+    and e.deleted_at is null
+    and (
+      public.has_permission('overtime.view_all')
+      or (
+        public.has_permission('overtime.view_team')
+        and e.department_id = public.auth_department_id()
+      )
+    );
+
+  get diagnostics v_approved = row_count;
+
+  return jsonb_build_object(
+    'approved_count', v_approved
+  );
+end;
+$;
+
+revoke all on function public.approve_overtime_bulk(uuid[]) from public;
+grant execute on function public.approve_overtime_bulk(uuid[]) to authenticated;
+
 -- =========================================================
 -- 4. POSTGREST SCHEMA CACHE
 -- =========================================================
