@@ -14,7 +14,7 @@ function getShiftDepartments(){
   )].sort((a,b)=>a.localeCompare(b,'id'));
 }
 
-function renderShiftAssignmentRows(){
+export function renderShiftAssignmentRows(){
   const tbody = el('shift-assignment-body');
   const count = el('shift-assignment-count');
   if(!tbody) return;
