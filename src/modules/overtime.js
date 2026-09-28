@@ -6,28 +6,148 @@ import { fmtMoney, fmtDate } from '../utils/format.js';
 
 export async function renderOvertime(){
   const c = el('content');
-  const [allReqs, allEmps] = await Promise.all([ sbAll('overtime_requests', {order:{col:'created_at', asc:false}}), sbAll('employees', {select:'*, departments(name)'}) ]);
-  const emps = isManager() ? allEmps.filter(e => e.department_id === state.me?.department_id) : allEmps;
+  const [allReqs, allEmps] = await Promise.all([
+    sbAll('overtime_requests', {order:{col:'created_at', asc:false}}),
+    sbAll('employees', {select:'*, departments(name)'})
+  ]);
+
+  const emps = isManager()
+    ? allEmps.filter(e => e.department_id === state.me?.department_id)
+    : allEmps;
+
   const teamIds = new Set(emps.map(e => e.id));
-  const reqs = isManager() ? allReqs.filter(r => teamIds.has(r.employee_id)) : allReqs;
-  const pending = reqs.filter(r=>r.status==='pending');
-  const approved = reqs.filter(r=>r.status==='approved');
+  const reqs = isManager()
+    ? allReqs.filter(r => teamIds.has(r.employee_id))
+    : allReqs;
+
+  const pending = reqs.filter(r => r.status === 'pending');
+  const approved = reqs.filter(r => r.status === 'approved');
+
   c.innerHTML = `
     <div class="grid grid-3" style="margin-bottom:18px;">
       <div class="stat-card"><div class="stat-num">${pending.length}</div><div class="stat-label">Menunggu</div></div>
       <div class="stat-card"><div class="stat-num">${approved.length}</div><div class="stat-label">Disetujui</div></div>
       <div class="stat-card"><div class="stat-num">${fmtMoney(approved.reduce((s,r)=>s+(Number(r.amount)||0),0))}</div><div class="stat-label">Total Nilai</div></div>
     </div>
-    <div class="card" style="padding:0;"><table><thead><tr><th>Karyawan</th><th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Alasan</th><th>Nilai</th><th>Status</th><th></th></tr></thead>
-    <tbody>${reqs.map(r=>{
-      const e = emps.find(x=>x.id===r.employee_id);
-      const start = r.start_time ? new Date(r.start_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '-';
-      const end = r.end_time ? new Date(r.end_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) : '-';
-      return `<tr><td><b>${escapeHtml(e?e.full_name:'-')}</b><br><span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(e?.departments?.name||'')}</span></td>
-        <td>${fmtDate(r.overtime_date)}</td><td>${start} – ${end}</td><td>${r.hours} jam</td>
-        <td style="max-width:180px;font-size:12.5px;">${escapeHtml(r.reason||'-')}</td><td>${r.amount?fmtMoney(r.amount):'-'}</td><td>${statusBadge(r.status)}</td>
-        <td style="text-align:right;">${r.status==='pending'&&(isHR()||isManager())?`<button class="btn btn-primary btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button> <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`:''}</td></tr>`;
-    }).join('') || '<tr><td colspan="8" class="empty-state">Belum ada pengajuan.</td></tr>'}</tbody></table></div>`;
+
+    ${pending.length ? `
+      <div class="toolbar" style="gap:8px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input id="overtime-select-all" type="checkbox" onchange="toggleAllOvertime(this.checked)">
+          Pilih semua lembur menunggu
+        </label>
+        <span id="overtime-selected-count" style="font-size:12px;color:var(--text-muted);">0 dipilih</span>
+        <span style="flex:1;"></span>
+        <button class="btn btn-primary" onclick="approveSelectedOvertime()">✓ Setujui Terpilih</button>
+      </div>` : ''}
+
+    <div class="card" style="padding:0;overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:42px;"></th>
+            <th>Karyawan</th><th>Tanggal</th><th>Jam</th><th>Durasi</th>
+            <th>Alasan</th><th>Nilai</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${reqs.map(r=>{
+            const employee = emps.find(x=>x.id===r.employee_id);
+            const start = r.start_time
+              ? new Date(r.start_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})
+              : '-';
+            const end = r.end_time
+              ? new Date(r.end_time).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})
+              : '-';
+
+            return `<tr>
+              <td>
+                ${r.status==='pending'
+                  ? `<input class="overtime-select" type="checkbox" value="${escapeHtml(r.id)}" onchange="updateOvertimeSelectedCount()">`
+                  : ''}
+              </td>
+              <td>
+                <b>${escapeHtml(employee?.full_name||'-')}</b><br>
+                <span style="font-size:11.5px;color:var(--text-muted);">${escapeHtml(employee?.departments?.name||'')}</span>
+              </td>
+              <td>${fmtDate(r.overtime_date)}</td>
+              <td>${start} – ${end}</td>
+              <td>${r.hours} jam</td>
+              <td style="max-width:180px;font-size:12.5px;">${escapeHtml(r.reason||'-')}</td>
+              <td>${r.amount ? fmtMoney(r.amount) : '-'}</td>
+              <td>${statusBadge(r.status)}</td>
+              <td style="text-align:right;">
+                ${r.status==='pending'&&(isHR()||isManager())
+                  ? `<button class="btn btn-outline btn-sm" onclick="approveOvertime('${r.id}')">Setujui</button>
+                     <button class="btn btn-danger btn-sm" onclick="rejectOvertime('${r.id}')">Tolak</button>`
+                  : ''}
+              </td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="9" class="empty-state">Belum ada pengajuan.</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+
+  updateOvertimeSelectedCount();
+}
+
+export function updateOvertimeSelectedCount(){
+  const selected = document.querySelectorAll('.overtime-select:checked').length;
+  const count = el('overtime-selected-count');
+  if(count) count.textContent = `${selected} dipilih`;
+
+  const selectAll = el('overtime-select-all');
+  const total = document.querySelectorAll('.overtime-select').length;
+  if(selectAll){
+    selectAll.checked = total > 0 && selected === total;
+    selectAll.indeterminate = selected > 0 && selected < total;
+  }
+}
+
+export function toggleAllOvertime(checked){
+  document.querySelectorAll('.overtime-select').forEach(input => {
+    input.checked = checked;
+  });
+  updateOvertimeSelectedCount();
+}
+
+export async function approveSelectedOvertime(){
+  const ids = [...document.querySelectorAll('.overtime-select:checked')]
+    .map(input => input.value)
+    .filter(Boolean);
+
+  if(!ids.length){
+    showToast('Pilih minimal satu pengajuan lembur.', true);
+    return;
+  }
+
+  if(!confirm(`Setujui ${ids.length} pengajuan lembur sekaligus?`)) return;
+
+  const buttons = document.querySelectorAll('button');
+  buttons.forEach(b => b.disabled = true);
+
+  try{
+    const { data, error } = await sb.rpc('approve_overtime_bulk', {
+      p_request_ids: ids
+    });
+
+    if(error){
+      showToast('Gagal menyetujui lembur: ' + error.message, true);
+      return;
+    }
+
+    const approvedCount = Number(data?.approved_count || 0);
+
+    if(approvedCount !== ids.length){
+      showToast(`${approvedCount} dari ${ids.length} pengajuan berhasil disetujui. Sebagian mungkin sudah berubah status.`, true);
+    }else{
+      showToast(`✓ ${approvedCount} pengajuan lembur berhasil disetujui.`);
+    }
+
+    await renderOvertime();
+  }finally{
+    buttons.forEach(b => b.disabled = false);
+  }
 }
 
 export async function approveOvertime(id){
