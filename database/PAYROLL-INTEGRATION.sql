@@ -244,7 +244,7 @@ begin
     and (
       public.has_permission('leave.view_all')
       or (
-        public.has_permission('leave.team')
+        public.has_permission('leave.view_team')
         and e.department_id = public.auth_department_id()
       )
       or (
